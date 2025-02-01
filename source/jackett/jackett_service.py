@@ -120,7 +120,7 @@ class JackettService:
         season = str(int(series.season.replace('S', '')))
         episode = str(int(series.episode.replace('E', '')))
 
-        has_imdb_search_capability = (os.getenv("DISABLE_JACKETT_IMDB_SEARCH") != "true"
+        has_imdb_search_capability = (os.getenv("DISABLE_JACKETT_IMDB_SEARCH") != "false"
                                       and indexer.tv_search_capatabilities is not None
                                       and 'imdbid' in indexer.tv_search_capatabilities)
         if has_imdb_search_capability:
