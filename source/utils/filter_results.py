@@ -81,6 +81,9 @@ def filter_out_non_matching(items, season, episode):
         try:
             if len(item.parsed_data.seasons) == 0 and len(item.parsed_data.episodes) == 0:
                 continue
+if len(item.parsed_data.seasons) == 0 and numeric_episode in item.parsed_data.episodes: 
+    filtered_items.append(item) 
+    continue
 
             if len(item.parsed_data.episodes) == 0 and numeric_season in item.parsed_data.seasons:
                 filtered_items.append(item)
@@ -92,17 +95,17 @@ def filter_out_non_matching(items, season, episode):
             logger.error(f"Error while filtering out non matching torrents", exc_info=e)
     return filtered_items
 
-
 def remove_non_matching_title(items, titles):
     logger.info(titles)
     filtered_items = []
     for item in items:
         for title in titles:
-            if not title_match(title, item.parsed_data.parsed_title):
-                continue
+            if title_match(title, item.parsed_data.parsed_title):
+                filtered_items.append(item)
+                break
+        else:
 
             filtered_items.append(item)
-            break
 
     return filtered_items
 
