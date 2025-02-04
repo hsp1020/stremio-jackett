@@ -253,7 +253,7 @@ async def get_playback(config: str, query: str, request: Request):
 async def update_app():
     try:
         current_version = "v" + VERSION
-        url = "https://api.github.com/repos/aymene69/stremio-jackett/releases/latest"
+        url = "https://api.github.com/repos/hsp1020/stremio-jackett/releases/latest"
         response = requests.get(url)
         data = response.json()
         latest_version = data['tag_name']
