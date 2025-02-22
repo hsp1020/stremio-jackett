@@ -12,7 +12,6 @@ video_formats = {".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg"
 def season_episode_in_filename(filename, season, episode, strict=False):
     if not is_video_file(filename):
         return False
-
     if strict:
         if not season.lower().startswith("s"):
             season = "s" + season
@@ -26,7 +25,6 @@ def season_episode_in_filename(filename, season, episode, strict=False):
     filename = filename.lower()
     season = season.lower()
     episode = episode.lower()
-
     return season in filename and episode in filename and filename.index(season) < filename.rindex(episode)
 
 

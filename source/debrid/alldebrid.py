@@ -72,12 +72,16 @@ class AllDebrid(BaseDebrid):
             deja = False
             link = None
             for file in data["magnets"]["files"]:
+
                 if season_episode_in_filename(file["n"], season, episode, strict=True):
                     strict_matching_files.append(file)
                 elif season_episode_in_filename(file["n"], season, episode, strict=False):
                     matching_files.append(file)
                 if len(matching_files) == 0:
-                    largest_file = max(file["e"], key=lambda x: x["s"])
+                    try:
+                        largest_file = max(file["e"], key=lambda x: x["s"])
+                    except:
+                        largest_file = file
                     if season_episode_in_filename(largest_file["n"], season, episode, strict=True):
                         strict_matching_files.append(file)
                         link = largest_file["l"]
@@ -87,22 +91,46 @@ class AllDebrid(BaseDebrid):
                     deja = True
                 rank += 1
 
+            if len(data["magnets"]["files"]) == 1:
+                dossier = data["magnets"]["files"][0]["e"]
+                for file in dossier:
+                    if season_episode_in_filename(file["n"], season, episode, strict=True):
+                        strict_matching_files.append(file)
+                    elif season_episode_in_filename(file["n"], season, episode, strict=False):
+                        matching_files.append(file)
+                    if len(matching_files) == 0:
+                        try:
+                            largest_file = max(file["e"], key=lambda x: x["s"])
+                        except:
+                            pass
+                        if season_episode_in_filename(largest_file["n"], season, episode, strict=True):
+                            strict_matching_files.append(file)
+                            link = largest_file["l"]
+                        elif season_episode_in_filename(largest_file["n"], season, episode, strict=False):
+                            matching_files.append(file)
+                            link = largest_file["l"]
+                        deja = True
+                    rank += 1
+
             if len(strict_matching_files) > 0:
                 matching_files = strict_matching_files
 
             if len(matching_files) == 0:
                 logger.error(f"No matching files for {season} {episode} in torrent.")
                 return f"Error: No matching files for {season} {episode} in torrent."
-
             if not deja:
+                print(matching_files)
                 link = max(matching_files, key=lambda x: x["s"])["l"]
+            if link is None:
+                link = max(matching_files, key=lambda x: x["s"])["l"]
+
         else:
             logger.error("Unsupported stream type.")
             return "Error: Unsupported stream type."
 
         if link == NO_CACHE_VIDEO_URL:
             return link
-
+        print("LINK", link)
         logger.info(f"Alldebrid link: {link}")
 
         unlocked_link_data = self.unrestrict_link(link, ip)

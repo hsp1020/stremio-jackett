@@ -1,0 +1,4 @@
+[console_scripts]
+parsett=cli:main
+ptt=cli:main
+

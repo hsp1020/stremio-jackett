@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: parsett
+Version: 1.5.1
+Summary: PTT
+License: MIT
+Author: Dreu LaVelle
+Author-email: dreu.lavelle@gmail.com
+Requires-Python: >=3.11,<4.0
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Dist: arrow (>=1.3.0,<2.0.0)
+Requires-Dist: regex (>=2023.12.25,<2024.0.0)
