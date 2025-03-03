@@ -35,20 +35,96 @@ services:
       - 9117:9117
     restart: unless-stopped
   jackett-stremio:
-    image: belmeg/stremio-addon-jackett
+    image: mhdzumair/mediafusion:4.3.23
     container_name: jackett-stremio
-    environment:
-      - PUID=$(id -u)
-      - PGID=$(id -g)
-      - TZ=America/Los_Angeles
-      - ADDON_NAME=stremio_jacket
+    ports:
+      - "3000:3000"
+    env_file: .env
     depends_on:
-      - jackett
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 #    networks:
 #      - stremio_jacket_network
     ports:
       - 3000:3000
     restart: unless-stopped
+    
+    mongodb:
+    image: mongo:latest
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+#    networks:
+#      - stremio_jacket_network
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --save 60 1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+#    networks:
+#      - stremio_jacket_network
+
+  dramatiq-worker:
+    image: mhdzumair/mediafusion:4.3.23
+    command: ["pipenv", "run", "dramatiq", "api.task", "-p", "1", "-t", "4"]
+    env_file: .env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+#    networks:
+#      - stremio_jacket_network
+
+  prowlarr:
+    image: ghcr.io/hotio/prowlarr:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=${TZ:-UTC}  # Add timezone support
+    ports:
+      - "9696:9696"
+    volumes:
+      - prowlarr-config:/config
+    restart: unless-stopped
+#    networks:
+#      - stremio_jacket_network
+
+  browserless:
+    image: ghcr.io/browserless/chromium
+    ports:
+      - "4000:4000"
+    environment:
+      - TIMEOUT=-1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/json/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+#    networks:
+#      - stremio_jacket_network
 
 #networks:
 #    stremio_jacket_network:
