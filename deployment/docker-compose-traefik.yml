@@ -3,7 +3,7 @@ version: '3'
 services:
   addon:
     image: belmeg/stremio-addon-jackett:latest
-    container_name: addon
+    container_name: addon_new
     networks:
       - traefik_default
     labels:
