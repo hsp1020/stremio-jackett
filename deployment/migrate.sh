@@ -14,8 +14,8 @@ cd ..
 
 sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
 sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 9117 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 8191 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 9217 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 8291 -j ACCEPT
 
 sudo netfilter-persistent save
 cd traefik
@@ -36,5 +36,5 @@ sudo docker compose up -d
 clear
 IP=$(curl -4 -s ifconfig.me)
 echo "Your addon is accessible at https://$domainName/"
-echo "Jackett is accessible at http://${IP}:9117"
-echo "FlareSolverr is accessible at http://${IP}:8191"
+echo "Jackett is accessible at http://${IP}:9217"
+echo "FlareSolverr is accessible at http://${IP}:8291"
