@@ -5,8 +5,8 @@ services:
         image: "traefik:v2.5"
         container_name: "traefik_new"
         ports:
-            - "80:80"
-            - "443:443"
+            - "880:80"
+            - "8443:443"
             - "8080:8080"
         volumes:
             - /etc/traefik:/etc/traefik
