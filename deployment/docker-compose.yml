@@ -1,8 +1,8 @@
 name: stremio_jacket
 services:
-  flaresolverr:
+  flaresolverr_new:
     image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
+    container_name: flaresolverr_new
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_HTML=${LOG_HTML:-false}
@@ -13,11 +13,11 @@ services:
 #    networks:
 #      - stremio_jacket_network
     ports:
-      - "${PORT:-8191}:8191"
+      - "${PORT:-8291}:8191"
     restart: unless-stopped
-  jackett:
+  jackett_new:
     image: lscr.io/linuxserver/jackett:latest
-    container_name: jackett
+    container_name: jackett_new
     environment:
       - PUID=$(id -u)
       - PGID=$(id -g)
@@ -25,29 +25,29 @@ services:
       - AUTO_UPDATE=true #optional
       - RUN_OPTS= #optional
     depends_on:
-      - flaresolverr
+      - flaresolverr_new
 #    networks:
 #      - stremio_jacket_network
     volumes:
       - ./data:/config
       - /path/to/blackhole:/downloads
     ports:
-      - 9117:9117
+      - 9217:9117
     restart: unless-stopped
-  jackett-stremio:
+  jackett-stremio_new:
     image: belmeg/stremio-addon-jackett
-    container_name: jackett-stremio
+    container_name: jackett-stremio_new
     environment:
       - PUID=$(id -u)
       - PGID=$(id -g)
       - TZ=America/Los_Angeles
       - ADDON_NAME=stremio_jacket
     depends_on:
-      - jackett
+      - jackett_new
 #    networks:
 #      - stremio_jacket_network
     ports:
-      - 3000:3000
+      - 3100:3000
     restart: unless-stopped
 
 #networks:
