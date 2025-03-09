@@ -20,32 +20,32 @@ read userMail
 echo "Please enter your domain name: "
 read domainName
 
-sudo mkdir /etc/traefik
-sudo mkdir /etc/traefik/certs
+sudo mkdir /etc/traefik_new
+sudo mkdir /etc/traefik_new/certs
 
 sudo curl -fsSL https://raw.githubusercontent.com/hsp1020/stremio-jackett/main/deployment/traefik/traefik.yml -o /etc/traefik/traefik.yml
 
 sudo sed -i "s/youremail@domain.com/$userMail/g" /etc/traefik/traefik.yml
 
-sudo mkdir traefik jackett addon
+sudo mkdir traefik_new jackett_new addon_new
 sudo curl -fsSL https://raw.githubusercontent.com/hsp1020/stremio-jackett/main/deployment/traefik/docker-compose.yml -o ./traefik/docker-compose.yml
 
 sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
 sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
-cd traefik
+cd traefik_new
 sudo docker compose up -d
-cd ../jackett
+cd ../jackett_new
 sudo mkdir data blackhole
 sudo curl -fsSL https://raw.githubusercontent.com/hsp1020/stremio-jackett/main/deployment/jackett/docker-compose.yml -o ./docker-compose.yml
 sudo sed -i "s/YOURADDON.COM/$domainName/g" ./docker-compose.yml
 sudo docker compose up -d
 
-cd ../addon
+cd ../addon_new
 sudo curl -fsSL https://raw.githubusercontent.com/hsp1020/stremio-jackett/main/deployment/docker-compose-traefik.yml -o ./docker-compose.yml
 sudo sed -i "s/YOURADDON.COM/$domainName/g" ./docker-compose.yml
 sudo docker compose up -d
-cd ../traefik
+cd ../traefik_new
 sudo docker compose down
 sudo docker compose up -d
 clear
