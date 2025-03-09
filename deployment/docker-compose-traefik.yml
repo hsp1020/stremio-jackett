@@ -1,7 +1,7 @@
 version: '3'
 
 services:
-  addon:
+  addon_new:
     image: belmeg/stremio-addon-jackett:latest
     container_name: addon_new
     networks:
