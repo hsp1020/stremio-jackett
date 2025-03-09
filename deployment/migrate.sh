@@ -12,8 +12,8 @@ cd ../traefik_new
 sudo docker compose down
 cd ..
 
-sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 880 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 8443 -j ACCEPT
 sudo iptables -A INPUT -p tcp --dport 9217 -j ACCEPT
 sudo iptables -A INPUT -p tcp --dport 8291 -j ACCEPT
 
