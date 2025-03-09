@@ -30,8 +30,8 @@ sudo sed -i "s/youremail@domain.com/$userMail/g" /etc/traefik/traefik.yml
 sudo mkdir traefik_new jackett_new addon_new
 sudo curl -fsSL https://raw.githubusercontent.com/hsp1020/stremio-jackett/main/deployment/traefik/docker-compose.yml -o ./traefik/docker-compose.yml
 
-sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 880 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 8443 -j ACCEPT
 sudo netfilter-persistent save
 cd traefik_new
 sudo docker compose up -d
