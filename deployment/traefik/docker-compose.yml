@@ -1,9 +1,9 @@
 version: "3"
 
 services:
-    traefik:
+    traefik_new:
         image: "traefik:v2.5"
-        container_name: "traefik"
+        container_name: "traefik_new"
         ports:
             - "80:80"
             - "443:443"
