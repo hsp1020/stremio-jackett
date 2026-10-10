@@ -440,3 +440,188 @@ assert [item.raw_title for item in phase_result] == [
     "Movie 2026 1080p best", "Movie 2026 720p"
 ]
 print("Phase 1+2 integrated filter sequence passed")
+
+
+# Phase 3+5 regression tests. All external HTTP calls remain mocked.
+import inspect
+import json
+import bencode
+from io import BytesIO
+from unittest.mock import Mock
+from torrent.torrent_item import TorrentItem
+from torrent.torrent_service import TorrentService
+from utils.detection import detect_languages, detect_subtitle_hint
+from utils.stremio_parser import get_emoji
+from utils.cache import search_cache
+from debrid.base_debrid import BaseDebrid
+
+assert detect_languages("A.Movie.KOR.SUB.1080p") == ["unknown"]
+assert detect_subtitle_hint("A.Movie.KOR.SUB.1080p") == "KO"
+assert detect_languages("A.Movie.KOR.DUB.1080p") == ["ko"]
+assert detect_languages("An.Anime.JPN.1080p") == ["ja"]
+assert detect_languages("A.Series.CHINESE.1080p") == ["zh"]
+assert detect_languages("A.Movie.1080p") == ["unknown"]
+assert get_emoji("ko") == "🇰🇷" and get_emoji("ja") == "🇯🇵"
+assert get_emoji("zh") == "🇨🇳" and get_emoji("unknown") == "❔"
+unknown = SimpleNamespace(languages=["unknown"])
+assert LanguageFilter({"languages": ["en"], "getAllLanguages": False})([unknown]) == [unknown]
+assert LanguageFilter({"languages": ["ko"], "getAllLanguages": False})([unknown]) == []
+
+def make_torrent_item(kind):
+    return TorrentItem(
+        "Example", "0", "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+        None, "http://localhost/dl/test", "5", ["en"], "Indexer", "public",
+        kind, SimpleNamespace(seasons=[2], episodes=[4]),
+    )
+
+def torrent_bytes(file_entries=None, name="Movie.mkv"):
+    info = {"name": name, "piece length": 16384, "pieces": b"x" * 20}
+    if file_entries is None:
+        info["length"] = 1234567
+    else:
+        info["files"] = [{"length": length, "path": path}
+                         for length, path in file_entries]
+    return bencode.bencode({"announce": "http://localhost/announce", "info": info})
+
+movie_service = TorrentService(Movie("tt100", ["Movie"], "2026", ["en"]))
+movie_torrent = movie_service._TorrentService__process_torrent(
+    make_torrent_item("movie"),
+    torrent_bytes([
+        (5 * 1024 ** 2, ["Movie", "trailer.mp4"]),
+        (100 * 1024 ** 2, ["Movie", "Movie.mkv"]),
+    ])
+)
+assert movie_torrent.file_index == 2
+assert movie_torrent.direct_file_index == 1
+assert movie_torrent.direct_file_missing is False
+single_file = movie_service._TorrentService__process_torrent(
+    make_torrent_item("movie"), torrent_bytes()
+)
+assert single_file.file_index == 1 and single_file.direct_file_index == 0
+
+series_media = Series("tt100:2:3", ["Show"], "S02", "E03", ["en"])
+series_service = TorrentService(series_media)
+series_files = [
+    (120 * 1024 ** 2, ["Show", "Show.S02E04.mkv"]),
+    (130 * 1024 ** 2, ["Show", "Show.S02E03.mkv"]),
+]
+episode_torrent = series_service._TorrentService__process_torrent(
+    make_torrent_item("series"), torrent_bytes(series_files)
+)
+assert episode_torrent.file_index == 2 and episode_torrent.direct_file_index == 1
+assert episode_torrent.file_name == "Show.S02E03.mkv"
+missing_episode = series_service._TorrentService__process_torrent(
+    make_torrent_item("series"),
+    torrent_bytes([(200 * 1024 ** 2, ["Show", "Show.S02E04.mkv"])])
+)
+assert missing_episode.file_index is None
+assert missing_episode.direct_file_missing is True
+direct_config = {
+    "maxResults": "1", "addonHost": "https://example.invalid",
+    "debrid": False, "torrenting": True,
+}
+assert parse_to_stremio_streams([missing_episode], direct_config, series_media) == []
+direct_streams = parse_to_stremio_streams([episode_torrent], direct_config, series_media)
+assert len(direct_streams) == 1 and direct_streams[0]["fileIdx"] == 1
+single_streams = parse_to_stremio_streams(
+    [single_file], direct_config, Movie("tt100", ["Movie"], "2026", ["en"])
+)
+assert len(single_streams) == 1 and single_streams[0]["fileIdx"] == 0
+debrid_query = episode_torrent.to_debrid_stream_query(series_media)
+assert debrid_query["file_index"] == 2  # Debrid ID is not Stremio fileIdx.
+
+# HTTP redirect handling: relative URLs, unsafe protocols and bounded bodies.
+class StreamResponse:
+    def __init__(self, status, data=b"", content_type="text/html", location=None):
+        self.status_code = status
+        self.headers = {"Content-Type": content_type}
+        if location:
+            self.headers["Location"] = location
+        self.encoding = "utf-8"
+        self.payload = data
+        self.closed = False
+    def iter_content(self, chunk_size=65536):
+        for i in range(0, len(self.payload), chunk_size):
+            yield self.payload[i:i + chunk_size]
+    def close(self):
+        self.closed = True
+
+class MockSession:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.urls = []
+    def get(self, url, **kwargs):
+        assert kwargs.get("stream") is True
+        self.urls.append(url)
+        return self.responses.pop(0)
+
+redirect_a = StreamResponse(302, location="../dl/final")
+redirect_b = StreamResponse(
+    200, b"magnet:?xt=urn:btih:" + b"a" * 40, "text/html"
+)
+session = MockSession([redirect_a, redirect_b])
+resolved = TorrentService()._TorrentService__process_web_url(
+    make_torrent_item("movie"), session
+)
+assert session.urls == ["http://localhost/dl/test", "http://localhost/dl/final"]
+assert resolved.info_hash == "a" * 40
+assert redirect_a.closed and redirect_b.closed
+unsafe = StreamResponse(302, location="file:///etc/passwd")
+bad_session = MockSession([unsafe])
+TorrentService()._TorrentService__process_web_url(make_torrent_item("movie"), bad_session)
+assert len(bad_session.urls) == 1 and unsafe.closed
+too_large = StreamResponse(200, b"z" * (16 * 1024 * 1024 + 1))
+large_session = MockSession([too_large])
+TorrentService()._TorrentService__process_web_url(
+    make_torrent_item("movie"), large_session
+)
+assert too_large.closed and len(large_session.urls) == 1
+
+# Cache reads must not mutate Movie/Series objects or fail the whole search.
+cache_media = Movie("tt100", ["Movie"], "2026", ["en"])
+original = dict(cache_media.__dict__)
+with patch("utils.cache.requests.get", return_value=SimpleNamespace(
+    status_code=200, json=lambda: [{"title": "Movie"}]
+)) as cache_request:
+    assert len(search_cache(cache_media)) == 1
+    assert cache_request.call_args.kwargs["timeout"] == (3, 8)
+assert cache_media.__dict__ == original
+with patch("utils.cache.requests.get", side_effect=ConnectionError("down")):
+    assert search_cache(cache_media) == []
+
+# Same host+API key share cached indexers; different credentials do not.
+jackett_xml = """
+<indexers><indexer id="cached"><title>Cached</title><link>http://invalid</link>
+<type>public</type><language>en</language></indexer></indexers>
+"""
+class IndexerResponse:
+    text = jackett_xml
+    def raise_for_status(self):
+        pass
+
+JackettService._indexer_cache.clear()
+s1 = JackettService({"jackettApiKey": "test1", "jackettHost": "http://cache-test"})
+s2 = JackettService({"jackettApiKey": "test1", "jackettHost": "http://cache-test"})
+s3 = JackettService({"jackettApiKey": "test2", "jackettHost": "http://cache-test"})
+with patch("jackett.jackett_service.requests.Session.get", return_value=IndexerResponse()) as network:
+    assert s1.get_indexers()[0].id == "cached"
+    assert s2.get_indexers()[0].id == "cached"
+    assert network.call_count == 1
+    assert s3.get_indexers()[0].id == "cached"
+    assert network.call_count == 2
+JackettService._indexer_cache.clear()
+
+# FastAPI blocking endpoints must run via the framework's threadpool.
+from main import get_results, get_playback
+assert not inspect.iscoroutinefunction(get_results)
+assert not inspect.iscoroutinefunction(get_playback)
+with patch("main.parse_config", return_value={"service": "realdebrid"}), \
+     patch("main.decodeb64", return_value='{}'), \
+     patch("main.get_debrid_service", return_value=SimpleNamespace(
+         get_stream_link=lambda query, ip: "https://video.invalid/temporary"
+     )):
+    playback = get_playback("conf", "encoded", SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+assert playback.status_code == 302
+assert playback.headers["cache-control"] == "no-store"
+assert playback.headers["location"] == "https://video.invalid/temporary"
+print("Phase 3+5 file selection, redirect, cache, languages, timeout and playback tests passed")
