@@ -167,7 +167,7 @@ def get_results(config: str, stream_type: str, stream_id: str, request: Request)
 
     debrid_service = get_debrid_service(config)
 
-    torrent_service = TorrentService()
+    torrent_service = TorrentService(media)
 
     search_results = []
 
