@@ -3,7 +3,6 @@ from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-
 class ResultsPerQualityFilter(BaseFilter):
     def __init__(self, config):
         super().__init__(config)

@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import urllib.parse
-from urllib.parse import urljoin # 상대 경로 합치기 위해 필수!
+from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
@@ -18,15 +18,10 @@ from utils.general import get_info_hash_from_magnet
 from utils.general import season_episode_in_filename
 from utils.logger import setup_logger
 
+MAX_WORKERS = 200
+REQUEST_TIMEOUT = 4
 
-# 튜닝 가능한 상수들
-MAX_WORKERS = 200          # I/O 바운드 작업이므로 스레드 수를 공격적으로 증가
-REQUEST_TIMEOUT = 4     # 각 요청당 타임아웃(초)
-
-
-# 스레드별 Session 재사용용 thread-local
 _thread_local = threading.local()
-
 
 def get_thread_session():
     """스레드별 requests.Session 재사용"""
@@ -35,7 +30,6 @@ def get_thread_session():
         session = requests.Session()
         _thread_local.session = session
     return session
-
 
 class TorrentService:
     def __init__(self):
@@ -111,8 +105,6 @@ class TorrentService:
             )
             return None, None
 
-
-
     def start_web_prefetch(self, results: List[JackettResult]):
         """
         필터링/RTN이 실행되는 동안 Jackett /dl/ → magnet 요청을 병렬로 선행한다.
@@ -130,14 +122,12 @@ class TorrentService:
 
             link = str(getattr(result, "link", "") or "")
 
-            # Jackett가 다운로드 시점에 magnet을 resolve하는 URL만 대상으로 함.
             if (
                 link.startswith(("http://", "https://"))
                 and "/dl/" in link
             ):
                 candidates.append(link)
 
-        # 동일 URL 중복 제거
         candidates = list(dict.fromkeys(candidates))
 
         if not candidates:
@@ -146,7 +136,6 @@ class TorrentService:
             )
             return
 
-        # 너무 많은 prefetch로 Jackett에 부하를 주지 않음.
         workers = min(8, len(candidates))
 
         self._prefetch_executor = ThreadPoolExecutor(
@@ -166,7 +155,6 @@ class TorrentService:
             f"[PERF][TorrentPrefetch] started: "
             f"candidates={len(candidates)} / workers={workers}"
         )
-
 
     def convert_and_process(self, results: List[JackettResult]):
         """Jackett 결과를 TorrentItem으로 변환하고 상세 정보 처리"""
@@ -199,18 +187,16 @@ class TorrentService:
             f"magnet={magnet_count} / "
             f"http_link={http_link_count}"
         )
-        
+
         if not results:
             return []
 
-        # I/O 바운드이므로 워커 수를 크게 늘림
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = [executor.submit(self.__process_single, result) for result in results]
-            
+
             success_count = 0
             fail_count = 0
 
-            # as_completed 로 먼저 끝난 작업부터 회수 (전체 완료 시간 단축에 유리)
             for future in as_completed(futures):
                 try:
                     item = future.result()
@@ -259,7 +245,6 @@ class TorrentService:
 
         return torrent_items_result
 
-
     def __process_single(self, result: JackettResult):
         """단일 JackettResult를 TorrentItem으로 변환하고 상세 정보 처리"""
         try:
@@ -274,7 +259,6 @@ class TorrentService:
                     self._perf["no_link"] += 1
                 return torrent_item
 
-            # 1. 이미 마그넷 주소인 경우
             if torrent_item.link.startswith("magnet:"):
                 with self._perf_lock:
                     self._perf["link_magnet"] += 1
@@ -298,21 +282,18 @@ class TorrentService:
                     f"link={getattr(torrent_item, 'link', None)} / "
                     f"detail={getattr(torrent_item, 'detail_link', None)}"
                 )
-            
-            # 2. 웹 URL 처리
+
             session = get_thread_session()
             return self.__process_web_url(torrent_item, session)
-            
+
         except Exception as e:
             self.logger.error(f"Unexpected error in __process_single: {e}")
-            return None # 실패 시 None 반환하여 필터링
-
+            return None
 
     def __process_web_url(self, result: TorrentItem, session: requests.Session):
         """Web URL 처리 - 케이스 1(마그넷 리다이렉트)과 케이스 2(토렌트 파일) 모두 대응"""
         current_url = result.link
 
-        # filter/RTN과 병렬로 미리 시작해 둔 Jackett /dl/ 요청 재사용
         prefetch_future = None
 
         with self._prefetch_lock:
@@ -327,7 +308,6 @@ class TorrentService:
             try:
                 prefetched = prefetch_future.result()
 
-                # 새 형식: (magnet, HTTP status)
                 if (
                     isinstance(prefetched, tuple)
                     and len(prefetched) == 2
@@ -337,7 +317,7 @@ class TorrentService:
                         prefetched_status,
                     ) = prefetched
                 else:
-                    # 안전용 backward compatibility
+
                     prefetched_magnet = prefetched
                     prefetched_status = None
 
@@ -361,11 +341,6 @@ class TorrentService:
                 result.magnet = prefetched_magnet
                 return self.__process_magnet(result)
 
-            # Prefetch에서 이미 404를 받은 URL을 다시 GET할 필요가 없다.
-            #
-            # 기존 __process_web_url 역시 404 응답이면
-            # 별도 변환 없이 loop를 종료하고 result를 반환하므로
-            # 최종 결과 의미는 동일하다.
             if prefetched_status == 404:
                 self.logger.info(
                     "[PERF][TorrentPrefetch] "
@@ -374,9 +349,9 @@ class TorrentService:
                 return result
 
         try:
-            # 리다이렉트가 여러 번 일어날 수 있으므로 최대 5번 추적
+
             for _ in range(5):
-                # allow_redirects=False로 설정하여 magnet: 스킴 에러 방지
+
                 try:
                     perf_http_start = time.perf_counter()
 
@@ -397,10 +372,9 @@ class TorrentService:
                 except requests.RequestException as re:
                     with self._perf_lock:
                         self._perf["http_errors"] += 1
-                    # self.logger.debug(f"Request failed for {current_url}: {re}")
+
                     break
-                
-                # [케이스 1 대응] 리다이렉트(302 등) 발생 시
+
                 if response.status_code in [301, 302, 303, 307, 308]:
                     with self._perf_lock:
                         self._perf["redirects"] += 1
@@ -408,34 +382,28 @@ class TorrentService:
                     location = response.headers.get("Location")
                     if not location:
                         break
-                    
-                    # 마그넷 주소를 가로채기 (torrentsome2 로그 케이스)
+
                     if location.startswith("magnet:"):
                         with self._perf_lock:
                             self._perf["redirect_to_magnet"] += 1
 
                         result.magnet = location
-                        # self.logger.info(f"Magnet link intercepted from redirect: {result.raw_title}")
+
                         return self.__process_magnet(result)
-                    
-                    # 일반 URL이면 다음 주소로 이동
+
                     current_url = location
                     continue
-                
-                # [케이스 2 대응] 목적지 도착 (200 OK)
+
                 if response.status_code == 200:
                     content = response.content
                     ctype = response.headers.get("Content-Type", "").lower()
 
-                    # 진짜 토렌트 파일인 경우 (torrentpi 로그 케이스)
                     if "application/x-bittorrent" in ctype or content.startswith(b'd8:'):
                         with self._perf_lock:
                             self._perf["torrent_files"] += 1
 
-                        # self.logger.info(f"Torrent file processing: {result.raw_title}")
                         return self.__process_torrent(result, content)
-                    
-                    # 만약 HTML 상세페이지라면 내부 마그넷 검색
+
                     if "text/html" in ctype:
                         import re
                         magnet_match = re.search(r'magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}', response.text)
@@ -445,19 +413,17 @@ class TorrentService:
 
                             result.magnet = magnet_match.group(0)
                             return self.__process_magnet(result)
-                        
-                        # 마그넷조차 없으면 상세페이지로 간주 (EXTERNAL 처리용)
+
                         with self._perf_lock:
                             self._perf["html_external"] += 1
 
                         return result
-                
-                # 그 외 에러(404 등) 발생 시 루프 종료
+
                 break
 
         except Exception as e:
             self.logger.debug(f"Failed to process URL {result.link}: {e}")
-        
+
         return result
 
     def __process_torrent(self, result: TorrentItem, torrent_file):
@@ -478,7 +444,7 @@ class TorrentService:
         )
 
         if "files" not in metadata["info"]:
-            # 단일 파일 토렌트
+
             result.file_index = 1
             return result
 
@@ -492,13 +458,12 @@ class TorrentService:
             )
 
             if file_details is not None:
-                # self.logger.info("File details")
-                # self.logger.info(file_details)
+
                 result.file_index = file_details["file_index"]
                 result.file_name = file_details["title"]
                 result.size = file_details["size"]
             else:
-                # 에피소드 매칭 실패 시 기본값
+
                 result.file_index = 1
         else:
             result.file_index = self.__find_movie_file(result.files)
@@ -589,15 +554,13 @@ class TorrentService:
             paths = files.get("path", [])
 
             for file in paths:
-                # 비디오 파일이 아니면 스킵
+
                 if not self.__is_video_file(file):
                     continue
 
-                # 파일 크기가 너무 작으면 스킵 (샘플 파일 등)
-                if length < 50 * 1024 * 1024:  # 50MB 미만
+                if length < 50 * 1024 * 1024:
                     continue
 
-                # 시즌/에피소드 패턴 간단히 체크 (parse 호출 전)
                 if not season_episode_in_filename(file, target_season, target_episode):
                     continue
 
@@ -624,7 +587,6 @@ class TorrentService:
         if not episode_files:
             return None
 
-        # 가장 큰 파일을 선택
         return max(episode_files, key=lambda file: file["size"])
 
     def __find_movie_file(self, file_structure):
@@ -637,7 +599,6 @@ class TorrentService:
             length = files.get("length", 0)
             paths = files.get("path", [])
 
-            # 비디오 파일인지 체크
             is_video = False
             for path_part in paths:
                 if self.__is_video_file(path_part):

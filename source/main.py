@@ -34,7 +34,6 @@ from utils.parse_config import parse_config
 from utils.stremio_parser import parse_to_stremio_streams
 from utils.string_encoding import decodeb64
 
-# [v1.1] 환경 변수 로드 로그
 print("[main.py] Loading environment variables...")
 load_dotenv()
 
@@ -42,7 +41,6 @@ root_path = os.environ.get("ROOT_PATH", None)
 if root_path and not root_path.startswith("/"):
     root_path = "/" + root_path
 
-# [v1.1] 앱 초기화 시작
 app = FastAPI(root_path=root_path)
 
 VERSION = "4.2.6"
@@ -50,7 +48,6 @@ isDev = os.getenv("NODE_ENV") == "development"
 COMMUNITY_VERSION = True if os.getenv("IS_COMMUNITY_VERSION") == "true" else False
 SPONSOR_MESSAGE = os.getenv("SPONSOR_MESSAGE")
 ADDON_ID = os.getenv("ADDON_ID") if os.getenv("ADDON_ID") is not None else "community.aymene69.jackett"
-
 
 class LogFilterMiddleware:
     def __init__(self, app):
@@ -60,12 +57,11 @@ class LogFilterMiddleware:
         if scope["type"] == "http":
             request = Request(scope, receive)
             path = request.url.path
-            # Configuration URLs contain API keys; never log their encoded values.
+
             safe_path = re.sub(r"^/[^/]+(?=/(?:configure|stream/|manifest\.json))", "/<CONFIG>", path)
             safe_path = re.sub(r"^/playback/[^/]+/[^/]+", "/playback/<CONFIG>/<QUERY>", safe_path)
             logger.info(f"{request.method} - {safe_path}")
         return await self.app(scope, receive, send)
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,11 +78,9 @@ templates = Jinja2Templates(directory="templates")
 
 logger = setup_logger(__name__)
 
-
 @app.get("/")
 async def root():
     return RedirectResponse(url="/configure")
-
 
 @app.get("/configure")
 @app.get("/{config}/configure")
@@ -97,12 +91,10 @@ async def configure(request: Request):
         {"isCommunityVersion": COMMUNITY_VERSION, "sponsorMessage": SPONSOR_MESSAGE, "version": VERSION}
     )
 
-
 @app.get("/static/{file_path:path}")
 async def function(file_path: str):
     response = FileResponse(f"templates/{file_path}")
     return response
-
 
 @app.get("/manifest.json")
 @app.get("/{params}/manifest.json")
@@ -119,16 +111,14 @@ async def get_manifest():
                        "fetching torrents for your selected movies within the Stremio interface.",
         "behaviorHints": {
             "configurable": True,
-            # "configurationRequired": True
+
         }
     }
-
 
 formatter = logging.Formatter('[%(asctime)s] p%(process)s {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s',
                               '%m-%d %H:%M:%S')
 
 logger.info("Started Jackett Addon")
-
 
 @app.get("/{config}/stream/{stream_type}/{stream_id}")
 async def get_results(config: str, stream_type: str, stream_id: str, request: Request):
@@ -140,7 +130,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
     config = parse_config(config)
     logger.info(stream_type + " request")
 
-    # 1. 메타데이터 제공자 설정
     if config['metadataProvider'] == "tmdb" and config['tmdbApi']:
         metadata_provider = TMDB(config)
         if not COMMUNITY_VERSION and config['jackett']:
@@ -176,7 +165,7 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
     torrent_service = TorrentService()
 
     search_results = []
-    # 2. 캐시 검색
+
     if COMMUNITY_VERSION or config['cache']:
         logger.info("Getting cached results")
         cached_results = search_cache(media)
@@ -188,7 +177,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
             search_results = filter_items(cached_results, media, config=config)
             logger.info("Filtered cached results")
 
-    # 3. Jackett 검색 (캐시 부족 시)
     if not COMMUNITY_VERSION and config['jackett'] and len(search_results) < int(config['maxResults']):
         if len(search_results) > 0 and config['cache']:
             logger.info("Not enough cached results found (results: " + str(len(search_results)) + ")")
@@ -213,8 +201,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
         )
 
         logger.info("Got " + str(len(jackett_search_results)) + " results from Jackett")
-
-        # Jackett /dl/ magnet resolve를 RTN/filter와 병렬 실행
 
         logger.info("Filtering Jackett results")
 
@@ -244,7 +230,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
         search_results.extend(filtered_jackett_search_results)
 
-    # 4. 결과 변환
     logger.debug("Converting result to TorrentItems (results: " + str(len(search_results)) + ")")
 
     perf_torrent_start = time.perf_counter()
@@ -272,7 +257,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
         f"input={len(torrent_results)}"
     )
 
-    # 5. Debrid 가용성 확인
     if config['debrid']:
         if config['service'] in ["torbox", "premiumize"]:
             logger.debug("Checking availability")
@@ -282,7 +266,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
             torrent_smart_container.update_availability(result, type(debrid_service), media)
             logger.debug("Checked availability (results: " + str(len(result.items())) + ")")
 
-    # 6. 중복 제거된 결과 사용 (최종 정렬은 Aiostreams에서 처리)
     perf_getitems_start = time.perf_counter()
 
     results = torrent_smart_container.get_items()
@@ -299,7 +282,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
     perf_parser_start = time.perf_counter()
 
-    # 7. 스트림 리스트 생성 (일반 토렌트/디브리드)
     stream_list = parse_to_stremio_streams(
         results,
         config,
@@ -314,9 +296,8 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
     perf_external_start = time.perf_counter()
 
-    # 8. EXTERNAL 아이템 추가
     for item in results:
-        # info_hash도 없고 마그넷도 없으면 External로 간주 (단, 마그넷이 있으면 스트림 파서가 처리함)
+
         if not item.info_hash and not (item.magnet and "xt=urn:btih:" in item.magnet):
             target_url = getattr(item, 'detail_link', None) or item.link
             if target_url:
@@ -335,7 +316,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
         f"{time.perf_counter() - perf_external_start:.3f}s"
     )
 
-    # 9. 통계 아이템 추가
     elapsed_time = time.time() - start
     result_count = len(stream_list)
 
@@ -351,8 +331,6 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
     return {"streams": stream_list}
 
-
-# [v1.1] HEAD, GET 통합 및 중복 제거
 @app.api_route("/playback/{config}/{query}", methods=["GET", "HEAD"])
 async def get_playback(config: str, query: str, request: Request):
     try:
@@ -376,5 +354,3 @@ async def get_playback(config: str, query: str, request: Request):
     except Exception as e:
         logger.error(f"An error occurred in playback: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while processing the request.")
-
-# [v1.1] 여기에 있던 중복된 @app.head("/playback/...") 삭제됨

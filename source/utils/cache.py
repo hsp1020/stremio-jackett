@@ -10,21 +10,19 @@ from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-
 def search_cache(media):
     logger.info("Searching for cached " + media.type + " results")
     url = CACHER_URL + "getResult/" + media.type + "/"
-    # Without that, the cache doesn't return results. Maybe make multiple requests? One for each language, just like jackett?
+
     cache_search = media.__dict__
     cache_search['title'] = cache_search['titles'][0]
     cache_search['language'] = cache_search['languages'][0]
-    # TODO: Wtf, why do we need to use __dict__ here? And also, why is it stuck when we use media directly?
+
     response = requests.get(url, json=cache_search)
     if response.status_code == 200:
         return response.json()
     else:
         return []
-
 
 def cache_results(torrents: List[TorrentItem], media):
     if os.getenv("NODE_ENV") == "development":
@@ -43,7 +41,7 @@ def cache_results(torrents: List[TorrentItem], media):
             cache_item['title'] = torrent.raw_title
             cache_item['trackers'] = "tracker:".join(torrent.trackers)
             cache_item['magnet'] = torrent.magnet
-            cache_item['files'] = []  # I guess keep it empty?
+            cache_item['files'] = []
             cache_item['hash'] = torrent.info_hash
             cache_item['indexer'] = torrent.indexer
             cache_item['quality'] = torrent.parsed_data.resolution
@@ -59,7 +57,7 @@ def cache_results(torrents: List[TorrentItem], media):
             elif media.type == "series":
                 cache_item['season'] = media.season
                 cache_item['episode'] = media.episode
-                cache_item['seasonfile'] = False  # I guess keep it false to not mess up results?
+                cache_item['seasonfile'] = False
 
             cache_items.append(cache_item)
         except:

@@ -23,7 +23,6 @@ from utils.filter.results_per_quality_filter import ResultsPerQualityFilter
 from utils.filter.title_exclusion_filter import TitleExclusionFilter
 from utils.logger import setup_logger
 
-
 logger = setup_logger(__name__)
 quality_order = {"4k": 0, "2160p": 0, "1080p": 1, "720p": 2, "480p": 3}
 
@@ -113,8 +112,6 @@ YEAR_REGEX = re.compile(
     rf'\b({YEAR_PATTERN})\b'
 )
 
-# remove_non_matching_title()에서 기존 year_pattern의
-# boundary 없는 동작을 그대로 보존한다.
 YEAR_INLINE_REGEX = re.compile(
     YEAR_PATTERN
 )
@@ -145,13 +142,11 @@ EPISODE_LIST_REGEX = re.compile(
     r'(?:e|ep)(\d{1,3})((?:\s*,\s*\d{1,3})+)', re.IGNORECASE
 )
 
-
 def sort_quality(item):
     parsed_data = item.parsed_data
     if parsed_data.resolution is None:
         return float('inf'), True
     return quality_order.get(parsed_data.resolution, float('inf')), False
-
 
 def items_sort(items, config):
     total_start = time.perf_counter()
@@ -273,7 +268,6 @@ def items_sort(items, config):
 
     return result
 
-
 def chinese_to_arabic(cn_str: str) -> Optional[int]:
     cn_nums = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
                '六': 6, '七': 7, '八': 8, '九': 9, '十': 10}
@@ -288,7 +282,6 @@ def chinese_to_arabic(cn_str: str) -> Optional[int]:
     if len(cn_str) == 3 and cn_str[1] == '十':
         return cn_nums.get(cn_str[0], 0) * 10 + cn_nums.get(cn_str[2], 0)
     return None
-
 
 def _episodes_from_title(raw_title):
     """Extract additional episodes without changing the RTN parser's values."""
@@ -325,17 +318,12 @@ def _episodes_from_title(raw_title):
         if match:
             start, end = map(int, match.groups())
             episodes.update(range(start, end + 1))
-    # Commas enumerate individual episodes; they do not imply every episode
-    # between the first and the last one.
+
     for match in EPISODE_LIST_REGEX.finditer(raw_title):
         episodes.add(int(match.group(1)))
         episodes.update(int(value) for value in re.findall(r'\d{1,3}', match.group(2)))
     return episodes
 
-
-
-# Shadow-only conservative raw-title prefilter benchmark.
-# 실제 검색 결과는 변경하지 않는다.
 _SHADOW_SEASON_RANGE_REGEX = re.compile(
     r'(?i)(?<![A-Za-z0-9])S(\d{1,2})\s*[-~–—]\s*S?(\d{1,2})(?!\d)'
 )
@@ -354,7 +342,6 @@ _SHADOW_EPISODE_REGEX = re.compile(
     r'(?:\s*[-~–—]\s*(?:(?:EP|E|Episode)[ ._-]*)?(\d{1,3}))?(?!\d)'
 )
 
-
 def _shadow_expand_range(start, end, maximum=1000):
     start = int(start)
     end = int(end)
@@ -363,7 +350,6 @@ def _shadow_expand_range(start, end, maximum=1000):
         return set(range(start, end + 1))
 
     return {start, end}
-
 
 def _shadow_explicit_episode_mismatch(
     raw_title,
@@ -384,7 +370,6 @@ def _shadow_explicit_episode_mismatch(
     seasons = set()
     episodes = set()
 
-    # S01-04 / S01-S04 / S1-S4 등의 multi-season range.
     for match in _SHADOW_SEASON_RANGE_REGEX.finditer(raw_title):
         start_season = int(match.group(1))
         end_season = int(match.group(2))
@@ -404,14 +389,12 @@ def _shadow_explicit_episode_mismatch(
                 }
             )
 
-    # 개별 S01 / S2 등의 season token.
     seasons.update(
         int(value)
         for value
         in _SHADOW_SEASON_TOKEN_REGEX.findall(raw_title)
     )
 
-    # cumulative episode 예외 판정을 위해 episode 숫자만 수집.
     for match in _SHADOW_SEASON_EPISODE_REGEX.finditer(raw_title):
         start_episode = int(match.group(2))
         end_episode = match.group(3)
@@ -440,26 +423,19 @@ def _shadow_explicit_episode_mismatch(
                 )
             )
 
-    # season 정보가 아예 없으면 절대 제거하지 않는다.
     if not seasons:
         return False
 
-    # 요청 season이 pack/range에 포함되어 있으면 보존.
     if requested_season in seasons:
         return False
 
-    # 예: 요청 S02E01의 cumulative episode가 E13인데
-    # release가 S01E13 등으로 표기된 경우 기존 동작을 보존.
     if (
         total_episode is not None
         and total_episode in episodes
     ):
         return False
 
-    # 여기까지 왔을 때만 명백한 season mismatch.
     return True
-
-
 
 def _shadow_result_key(item):
     info_hash = getattr(item, 'info_hash', None)
@@ -487,12 +463,10 @@ def _shadow_result_key(item):
 
     return f'title:{getattr(item, "raw_title", "")}'
 
-
 def _matches_requested_episode(item, season, episode, total_episode, extra_episodes):
     parsed_seasons = item.parsed_data.seasons
     parsed_episodes = item.parsed_data.episodes
 
-    # Cumulative numbering can be labelled as a different season by a release.
     if total_episode is not None and (
         total_episode in parsed_episodes or total_episode in extra_episodes
     ):
@@ -506,7 +480,6 @@ def _matches_requested_episode(item, season, episode, total_episode, extra_episo
     return season in parsed_seasons and (
         episode in parsed_episodes or episode in extra_episodes
     )
-
 
 def filter_out_non_matching(items, season, episode, media: Optional[Media] = None):
     total_episode = None
@@ -537,10 +510,8 @@ def filter_out_non_matching(items, season, episode, media: Optional[Media] = Non
             logger.error('Error while filtering out non matching torrents', exc_info=exc)
     return filtered_items
 
-
 def filter_out_season_episode_for_movies(items):
     return [item for item in items if not MOVIE_EPISODE_REGEX.search(item.raw_title)]
-
 
 def extract_english_title_from_mixed(title: str) -> str:
     title_no_chinese = re.sub(r'[\u4E00-\u9FFF]', '', title)
@@ -561,7 +532,6 @@ def extract_english_title_from_mixed(title: str) -> str:
             start_idx = index
             break
     return ' '.join(words[start_idx:]).strip()
-
 
 def _strip_title_noise(raw_title):
     """Remove source labels and outer release decorations in original order."""
@@ -591,7 +561,6 @@ def _strip_title_noise(raw_title):
     title = RELEASE_GROUP_START_REGEX.sub(r'\1', title)
     title = RELEASE_GROUP_END_REGEX.sub(r'\1', title)
     return title
-
 
 def _clean_title_languages(title, keep_chinese):
     """Preserve the original Chinese-aware and alternate-title branches."""
@@ -624,7 +593,6 @@ def _clean_title_languages(title, keep_chinese):
                                 title = title.replace(group, '')
     return title
 
-
 def _trim_title_suffix(title):
     """Finish punctuation cleanup and cut release season/episode suffixes."""
     title = REMAINING_NOT_ALLOWED_SYMBOLS_REGEX.sub('', title)
@@ -642,25 +610,20 @@ def _trim_title_suffix(title):
             break
     return title
 
-
 def clean_title(raw_title: str, keep_chinese: bool = False) -> str:
     """Keep the established transformation order; downstream matching depends on it."""
     title = _strip_title_noise(raw_title)
     title = _clean_title_languages(title, keep_chinese)
     return _trim_title_suffix(title)
 
-
 def _has_chinese(text):
     return bool(re.search(r'[\u4E00-\u9FFF\u3400-\u4DBF]', text))
-
 
 def _has_korean(text):
     return any('\uac00' <= char <= '\ud7a3' for char in text)
 
-
 def _extract_korean(text):
     return re.sub(r'\s+', ' ', re.sub(r'[^\uac00-\ud7a3\s]', '', text)).strip()
-
 
 def _comparison_variants(text, keep_chinese=False):
     base = ' '.join(re.sub(r'(\d+)', r' \1 ', clean_title(text, keep_chinese)).split()).lower()
@@ -673,7 +636,6 @@ def _comparison_variants(text, keep_chinese=False):
         if base_no_article != base:
             variants.append(base_no_article.replace(' ', ''))
     return variants
-
 
 def _prepare_variant(text):
     """Compute values reused across comparisons against several titles."""
@@ -693,7 +655,6 @@ def _prepare_variant(text):
         'english': re.sub(r'[^a-z0-9\s]', '', text.lower()),
     }
 
-
 def _prepare_fuzzy_text(text):
     """Prepare only the fields used by the fuzzy fallback."""
     return {
@@ -702,7 +663,6 @@ def _prepare_fuzzy_text(text):
         'korean': _extract_korean(text),
         'english': re.sub(r'[^a-z0-9\s]', '', text.lower()),
     }
-
 
 def _word_match(item, target):
     """Original exact/word-order fallback, separated from fuzzy matching."""
@@ -744,7 +704,6 @@ def _word_match(item, target):
     title_counter = Counter(title_words)
     return all(title_counter[word] >= count for word, count in target['remaining_word_counts'].items())
 
-
 def _fuzzy_score(text, target):
     if not text['text'].strip() or not target['text'].strip():
         return 0
@@ -752,20 +711,17 @@ def _fuzzy_score(text, target):
         return fuzz.ratio(text['korean'], target['korean'])
     return fuzz.ratio(text['english'], target['english'])
 
-
 def _subset_for_first_fuzzy(item_variant, target, media_type, year_pattern, movie_subset):
     if media_type == 'movie':
         if year_pattern.search(target['text']):
             return ' '.join(item_variant['words'][:len(target['words'])])
         return movie_subset
 
-    # Retain the original conditional (including its clean_title interaction).
     was_cut = any(re.search(pattern, item_variant['text'], re.IGNORECASE)
                   for pattern in SEASON_EPISODE_PATTERNS)
     if was_cut:
         return item_variant['text']
     return ' '.join(item_variant['words'][:len(target['words'])])
-
 
 def _matches_standard_title(raw_title, media_type, target_variants, year_pattern):
     processed_variants = [_prepare_variant(value) for value in _comparison_variants(raw_title)]
@@ -786,13 +742,12 @@ def _matches_standard_title(raw_title, media_type, target_variants, year_pattern
                 fuzzy_cache[subset] = _prepare_fuzzy_text(subset)
             if _fuzzy_score(fuzzy_cache[subset], target) >= 76:
                 return True
-    # The full-title comparison intentionally runs only after the first pass fails.
+
     for item_variant in processed_variants:
         for target in target_variants:
             if _fuzzy_score(item_variant, target) >= 76:
                 return True
     return False
-
 
 def _matches_chinese_title(raw_title, target_variants):
     for value in _comparison_variants(raw_title, keep_chinese=True):
@@ -806,7 +761,6 @@ def _matches_chinese_title(raw_title, target_variants):
                 if fuzz.ratio(item_no_space, target_no_space) >= 76:
                     return True
     return False
-
 
 def remove_non_matching_title(items: List, titles: List[str]) -> List:
     standard_targets = [
@@ -833,8 +787,6 @@ def remove_non_matching_title(items: List, titles: List[str]) -> List:
 
     filtered_items = []
 
-    # 같은 raw title은 동일한 media/titles 조건에서
-    # fuzzy/title 판정을 다시 계산할 필요가 없다.
     match_cache = {}
     cache_hits = 0
     evaluated = 0
@@ -889,8 +841,7 @@ def remove_non_matching_title(items: List, titles: List[str]) -> List:
             )
 
         if matched:
-            # 기존 코드와 동일하게 Chinese fallback으로
-            # 통과한 항목은 로그를 남긴다.
+
             if chinese_matched:
                 logger.debug(
                     'Matched by Chinese-Preserving Logic: %s',
@@ -914,8 +865,6 @@ def remove_non_matching_title(items: List, titles: List[str]) -> List:
 
     return filtered_items
 
-
-
 def get_media_year(media):
     if hasattr(media, 'year') and media.year:
         return int(media.year)
@@ -925,10 +874,8 @@ def get_media_year(media):
         return int(media.first_air_date[:4])
     return None
 
-
 def extract_years_from_title(raw_title: str) -> List[int]:
     return [int(year) for year in YEAR_REGEX.findall(raw_title)]
-
 
 def is_year_mismatched(media_year: int, raw_title: str, media_titles: List[str]) -> bool:
     if any(YEAR_REGEX.search(title) for title in media_titles):
@@ -944,8 +891,6 @@ def is_year_mismatched(media_year: int, raw_title: str, media_titles: List[str])
     if len(years) == 1:
         return abs(media_year - years[0]) > 1
     return media_year not in years
-
-
 
 def _rtn_parse_worker(raw_title):
     """
@@ -963,7 +908,6 @@ def _rtn_parse_worker(raw_title):
         os.getpid(),
     )
 
-
 def _rtn_prewarm_worker():
     """
     Spawn worker에서 실제 RTN parse 경로까지 한 번 실행해
@@ -971,11 +915,9 @@ def _rtn_prewarm_worker():
     """
     parse("__rtn_prewarm__")
 
-    # 두 worker가 모두 실제로 기동될 시간을 약간 확보한다.
     time.sleep(0.05)
 
     return os.getpid()
-
 
 def start_rtn_prewarm():
     workers = min(
@@ -1010,7 +952,6 @@ def start_rtn_prewarm():
         "workers": workers,
     }
 
-
 def shutdown_rtn_prewarm(handle):
     if not handle:
         return
@@ -1029,8 +970,6 @@ def shutdown_rtn_prewarm(handle):
         pass
 
     handle["executor"] = None
-
-
 
 def _materialize_parsed_data(items, rtn_prewarm=None):
     pending = []
@@ -1092,9 +1031,7 @@ def _materialize_parsed_data(items, rtn_prewarm=None):
         owns_executor = False
 
         try:
-            # ---------------------------------------------
-            # Jackett SmartWait 중 미리 생성한 pool 재사용
-            # ---------------------------------------------
+
             if rtn_prewarm:
                 executor = rtn_prewarm.get(
                     "executor"
@@ -1249,8 +1186,7 @@ def _materialize_parsed_data(items, rtn_prewarm=None):
             mode = 'parse-fallback'
 
         finally:
-            # 여기서 직접 만든 pool만 여기서 닫는다.
-            # prewarm pool은 main의 finally에서 정리한다.
+
             if (
                 owns_executor
                 and executor is not None
@@ -1307,9 +1243,6 @@ def _materialize_parsed_data(items, rtn_prewarm=None):
 
     return items
 
-
-
-
 def _count_unresolved_dl(items):
     count = 0
 
@@ -1331,7 +1264,6 @@ def _count_unresolved_dl(items):
 
     return count
 
-
 def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None):
     filters = {
         'languages': LanguageFilter(config),
@@ -1349,14 +1281,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
     pre_rtn_started = time.perf_counter()
     before_pre_rtn = len(items)
 
-    # --------------------------------------------------------
-    # RTN 불필요 단계
-    # --------------------------------------------------------
-
-    # -----------------------------------------------
-    # RTN prefilter SHADOW benchmark
-    # 실제 items는 제거하지 않는다.
-    # -----------------------------------------------
     shadow_rejected_titles = set()
 
     if media.type == 'series':
@@ -1417,8 +1341,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
             shadow_removed_items,
         )
 
-        # Conservative v2 prefilter:
-        # 요청 season이 명백히 존재하지 않는 release만 RTN 전에 제거.
         items = [
             item
             for item in items
@@ -1466,9 +1388,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
             'Season >= 2, skipping year mismatch filter'
         )
 
-
-
-
     logger.info(
         '[PERF] Pre-RTN raw filters: %.3fs / %s -> %s',
         time.perf_counter() - pre_rtn_started,
@@ -1481,18 +1400,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
     )
     if prefetch_callback is not None:
         prefetch_callback(items)
-
-
-    # --------------------------------------------------------
-    # 여기부터 RTN이 실제로 필요함.
-    #
-    # series:
-    #   parsed_data.seasons / episodes 필요
-    #
-    # movie:
-    #   remove_non_matching_title()에서
-    #   parsed_data.type 필요
-    # --------------------------------------------------------
 
     items = _materialize_parsed_data(
         items,
@@ -1514,12 +1421,10 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
             f"dl={_count_unresolved_dl(items) if '_count_unresolved_dl' in globals() else -1}"
         )
 
-    # 기존 RTN type 기반 title 판정 그대로 유지
     logger.info(
         f"[PERF][DL-CANDIDATES] before_title="
         f"{_count_unresolved_dl(items)} / items={len(items)}"
     )
-
 
     perf_title_start = time.perf_counter()
     items = remove_non_matching_title(
@@ -1535,13 +1440,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
         f"[PERF][DL-CANDIDATES] after_title="
         f"{_count_unresolved_dl(items)} / items={len(items)}"
     )
-
-
-    # --------------------------------------------------------
-    # 기존 외부 필터 순서는 변경하지 않음.
-    # 최신 구현 파일이 첨부되지 않았으므로
-    # 결과 품질 보장을 위해 순서를 그대로 보존.
-    # --------------------------------------------------------
 
     for filter_name, filter_instance in filters.items():
         try:
@@ -1571,7 +1469,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
     )
 
     return items
-
 
 def sort_items(items, config):
     return items_sort(items, config) if config['sort'] is not None else items

@@ -14,7 +14,6 @@ from models.series import Series
 from utils.detection import detect_languages
 from utils.logger import setup_logger
 
-
 class _LazyParsedData:
     """Compatibility proxy that defers RTN parsing until parsed metadata is accessed."""
 
@@ -54,20 +53,17 @@ class _LazyParsedData:
         else:
             setattr(self.materialize(), name, value)
 
-
 class JackettService:
-    # Search lifecycle settings
+
     SEARCH_TIMEOUT = 15.0
     HTTP_TIMEOUT = 15
     MOVIE_NO_YEAR_MERGE_THRESHOLD = 25
     MOVIE_NO_YEAR_RESULT_TAG = 'movie_no_year'
 
-    # Session and rate-limit settings
     BT4G_MIN_INTERVAL = 61
     BT4G_RATE_LIMIT_STATE_KEY = 'bt4g_global'
     CLOUDFLARE_SESSION_DURATION = 1200
 
-    # Language and media policies
     LANGUAGE_ENGLISH = 'en'
     LANGUAGE_KOREAN = 'ko'
     LANGUAGE_CHINESE = 'zh'
@@ -81,7 +77,6 @@ class JackettService:
     )
     KITSU_PART_PATTERN_JP = re.compile(r"\d+クール")
 
-    # Torznab and environment settings
     DISABLE_IMDB_SEARCH_ENV = 'DISABLE_JACKETT_IMDB_SEARCH'
     IMDB_DISABLED_VALUE = 'true'
     IMDB_ID_PARAM = 'imdbid'
@@ -90,7 +85,6 @@ class JackettService:
     TORZNAB_SERIES_SEARCH_TYPE = 'tvsearch'
     TORZNAB_SERIES_CATEGORY = '5000'
 
-    # Centralized indexer policies. Resolution order is family -> prefix -> exact.
     DEFAULT_INDEXER_POLICY = {
         'search_all_languages': False,
         'series_title_only': False,
@@ -283,7 +277,6 @@ class JackettService:
             proceed_with_search = True
             policy = self._get_indexer_policy(indexer)
 
-            # Only BT4G is rate-limited. The complete 50bt-69bt family is independent.
             if policy['is_bt4g_rate_limited']:
                 with JackettService._rate_limit_lock:
                     now = time.time()
@@ -919,9 +912,6 @@ class JackettService:
             params['q'] = self._build_query_string(title, suffix, is_50bt_69bt)
             return params
 
-        # imdbid 지원 여부와 season/ep 지원 여부는 서로 독립적이다.
-        # Kitsu는 imdbid를 사용하지 않더라도, 인덱서가 season/ep를
-        # 지원하면 구조화된 TV search 파라미터를 사용할 수 있다.
         tv_search_capabilities = set(
             indexer.tv_search_capatabilities or []
         )
@@ -993,7 +983,7 @@ class JackettService:
                 continue
 
             if is_kitsu_part_series:
-                # Part 표기가 있는 Kitsu는 기존 E01 텍스트 검색 의미를 유지한다.
+
                 params_episode = create_params(
                     base_params,
                     titles[index],
@@ -1009,8 +999,6 @@ class JackettService:
                     )
                     all_search_tasks.append((params_episode, f"Episode-{lang}"))
 
-                    # 시즌 없는 누적/한국식 에피소드 검색은 별도 패턴이므로
-                    # 구조화 검색으로 치환하지 않는다.
                     params_episode_no_season = create_params(
                         base_params,
                         titles[index],
@@ -1250,9 +1238,6 @@ class JackettService:
         language_cache = {}
         language_cache_hits = 0
 
-        # Request-scoped RTN cache.
-        # filter_results가 실제 parsed metadata를 필요로 할 때까지
-        # RTN parse를 실행하지 않는다.
         parse_cache = {}
         parse_lock = threading.Lock()
 

@@ -14,8 +14,6 @@ INSTANTLY_AVAILABLE = "[⚡]"
 DOWNLOAD_REQUIRED = "[⬇️]"
 DIRECT_TORRENT = "[🏴‍☠️]"
 
-
-# TODO: Languages
 def get_emoji(language):
     emoji_dict = {
         "fr": "🇫🇷",
@@ -33,13 +31,11 @@ def get_emoji(language):
     }
     return emoji_dict.get(language, "🇬🇧")
 
-
 def filter_by_availability(item):
     if item["name"].startswith(INSTANTLY_AVAILABLE):
         return 0
     else:
         return 1
-
 
 def filter_by_direct_torrent(item):
     if item["name"].startswith(DIRECT_TORRENT):
@@ -47,14 +43,11 @@ def filter_by_direct_torrent(item):
     else:
         return 0
 
-
-# [v1.3] 수정: debrid 인자 추가 및 로직 분리
 def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrenting, debrid, results: queue.Queue, media: Media):
     parsed_data = torrent_item.parsed_data
 
-    # --- 1. 공통 제목/설명 생성 (Common Description) ---
     size_in_gb = round(int(torrent_item.size) / 1024 / 1024 / 1024, 2)
-    
+
     title = f"{torrent_item.raw_title}\n"
     if torrent_item.file_name is not None:
         title += f"{torrent_item.file_name}\n"
@@ -71,7 +64,6 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
         title += f"{get_emoji(language)}/"
     title = title[:-1]
 
-    # --- 2. Debrid 스트림 생성 (설정이 켜져 있을 때만!) ---
     if debrid:
         if torrent_item.availability == True:
             name = f"{INSTANTLY_AVAILABLE}\n"
@@ -92,13 +84,12 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             }
         })
 
-    # --- 3. Direct Torrent 스트림 생성 ---
     if torrenting and torrent_item.privacy == "public":
         name = f"{DIRECT_TORRENT}\n"
         if parsed_data.quality and parsed_data.quality != "Unknown" and \
                 parsed_data.quality != "":
             name += f"({parsed_data.quality})"
-            
+
         results.put({
             "name": name,
             "description": title,
@@ -110,20 +101,18 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             }
         })
 
-
 def parse_to_stremio_streams(torrent_items: List[TorrentItem], config, media):
     stream_list = []
     threads = []
     thread_results_queue = queue.Queue()
 
     configb64 = encodeb64(json.dumps(config).replace('=', '%3D'))
-    
-    # [v1.3] config['debrid'] 값 추출하여 전달
+
     debrid_enabled = config['debrid']
-    
+
     for torrent_item in torrent_items[:int(config['maxResults'])]:
         thread = threading.Thread(target=parse_to_debrid_stream,
-                                  # [v1.3] debrid_enabled 인자 전달
+
                                   args=(torrent_item, configb64, config['addonHost'], config['torrenting'],
                                         debrid_enabled, thread_results_queue, media),
                                   daemon=True)
@@ -139,11 +128,10 @@ def parse_to_stremio_streams(torrent_items: List[TorrentItem], config, media):
     if len(stream_list) == 0:
         return []
 
-    # 정렬 로직
     if config['debrid']:
         stream_list = sorted(stream_list, key=filter_by_availability)
         stream_list = sorted(stream_list, key=filter_by_direct_torrent)
-    
+
     logger.debug(f"[StremioParser] Generated {len(stream_list)} streams")
-    
+
     return stream_list

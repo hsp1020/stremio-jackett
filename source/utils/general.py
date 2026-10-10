@@ -31,7 +31,6 @@ def get_info_hash_from_magnet(magnet: str):
 
     return info_hash.lower()
 
-
 def is_video_file(filename):
     extension_idx = filename.rfind(".")
     if extension_idx == -1:
