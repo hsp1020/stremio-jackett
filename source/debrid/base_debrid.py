@@ -13,13 +13,13 @@ class BaseDebrid:
 
     def get_json_response(self, url, method='get', data=None, headers=None, files=None):
         if method == 'get':
-            response = self.__session.get(url, headers=headers)
+            response = self.__session.get(url, headers=headers, timeout=(5, 20))
         elif method == 'post':
-            response = self.__session.post(url, data=data, headers=headers, files=files)
+            response = self.__session.post(url, data=data, headers=headers, files=files, timeout=(5, 20))
         elif method == 'put':
-            response = self.__session.put(url, data=data, headers=headers)
+            response = self.__session.put(url, data=data, headers=headers, timeout=(5, 20))
         elif method == 'delete':
-            response = self.__session.delete(url, headers=headers)
+            response = self.__session.delete(url, headers=headers, timeout=(5, 20))
         else:
             raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -46,7 +46,7 @@ class BaseDebrid:
         return False
 
     def donwload_torrent_file(self, download_url):
-        response = requests.get(download_url)
+        response = self.__session.get(download_url, timeout=(5, 20))
         response.raise_for_status()
 
         return response.content

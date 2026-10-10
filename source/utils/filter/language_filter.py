@@ -22,6 +22,7 @@ class LanguageFilter(BaseFilter):
             if (
                 any(language in self.config['languages'] for language in torrent.languages)
                 or "multi" in torrent.languages
+                or ("unknown" in torrent.languages and "en" in self.config['languages'])
             ):
                 filtered_data.append(torrent)
         return filtered_data

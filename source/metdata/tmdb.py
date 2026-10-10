@@ -70,7 +70,7 @@ class TMDB(MetadataProvider):
 
         try:
             find_url = f"https://api.themoviedb.org/3/find/{tvdb_id}?api_key={self.config['tmdbApi']}&external_source=tvdb_id"
-            response = requests.get(find_url)
+            response = requests.get(find_url, timeout=(3, 10))
             response.raise_for_status()
             find_data = response.json()
 
@@ -194,7 +194,7 @@ class TMDB(MetadataProvider):
                     url = f"https://api.themoviedb.org/3/find/{full_id[0]}?api_key={self.config['tmdbApi']}&external_source=imdb_id&language={lang}"
 
                 perf_request_start = time.perf_counter()
-                response = session.get(url)
+                response = session.get(url, timeout=(3, 10))
                 perf_request_end = time.perf_counter()
 
                 self.logger.info(
@@ -234,7 +234,7 @@ class TMDB(MetadataProvider):
 
                         try:
                             perf_alias_start = time.perf_counter()
-                            alias_res = session.get(alias_url)
+                            alias_res = session.get(alias_url, timeout=(3, 10))
                             perf_alias_end = time.perf_counter()
 
                             self.logger.info(
@@ -384,11 +384,11 @@ class TMDB(MetadataProvider):
                     perf_series_info_start = time.perf_counter()
                     if reusable_tmdb_session is not None:
                         series_info_response = reusable_tmdb_session.get(
-                            series_info_url
+                            series_info_url, timeout=(3, 10)
                         )
                     else:
                         series_info_response = requests.get(
-                            series_info_url
+                            series_info_url, timeout=(3, 10)
                         )
 
                     perf_series_info_end = time.perf_counter()

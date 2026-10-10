@@ -47,7 +47,7 @@ class RealDebrid(BaseDebrid):
         logger.info(f"Selecting file(s): {file_id}")
         url = f"{self.base_url}/rest/1.0/torrents/selectFiles/{torrent_id}"
         data = {"files": str(file_id)}
-        requests.post(url, headers=self.headers, data=data)
+        requests.post(url, headers=self.headers, data=data, timeout=(5, 20))
 
     def unrestrict_link(self, link):
         url = f"{self.base_url}/rest/1.0/unrestrict/link"

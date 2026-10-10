@@ -1,6 +1,6 @@
 const sorts = ['quality', 'seedsdesc', 'sizedesc', 'sizeasc', 'qualitythensize'];
 const qualityExclusions = ['4k', '1080p', '720p', '480p', 'rips', 'cam', 'unknown'];
-const languages = ['en', 'fr', 'es', 'de', 'it', 'pt', 'ru', 'in', 'nl', 'hu', 'la', 'multi'];
+const languages = ['en', 'fr', 'es', 'de', 'it', 'pt', 'ru', 'in', 'nl', 'hu', 'la', 'ko', 'ja', 'zh', 'multi'];
 
 document.addEventListener('DOMContentLoaded', function () {
     updateProviderFields();

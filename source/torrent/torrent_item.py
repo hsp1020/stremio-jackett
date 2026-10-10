@@ -25,7 +25,9 @@ class TorrentItem:
         self.files = None  # The files inside of the torrent. If it's None, it means that there is only one file inside of the torrent
         self.torrent_download = None  # The torrent jackett download url if its None, it means that there is only a magnet link provided by Jackett. It also means, that we cant do series file filtering before debrid.
         self.trackers = []  # Trackers of the torrent
-        self.file_index = None  # Index of the file inside of the torrent - it may be updated durring __process_torrent() and update_availability(). If the index is None and torrent is not None, it means that the series episode is not inside of the torrent.
+        self.file_index = None  # Debrid file identifier (provider-specific).
+        self.direct_file_index = None  # Zero-based index from the .torrent file list, for Stremio only.
+        self.direct_file_missing = False  # Known .torrent pack does not contain the requested video.
 
         self.availability = False  # If it's instantly available on the debrid service
 

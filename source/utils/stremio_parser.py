@@ -4,6 +4,7 @@ from typing import List
 from models.media import Media
 from torrent.torrent_item import TorrentItem
 from utils.logger import setup_logger
+from utils.detection import detect_subtitle_hint
 from utils.string_encoding import encodeb64
 
 logger = setup_logger(__name__)
@@ -14,6 +15,10 @@ DIRECT_TORRENT = "[🏴‍☠️]"
 
 def get_emoji(language):
     emoji_dict = {
+        "ko": "🇰🇷",
+        "ja": "🇯🇵",
+        "zh": "🇨🇳",
+        "unknown": "❔",
         "fr": "🇫🇷",
         "en": "🇬🇧",
         "es": "🇪🇸",
@@ -27,7 +32,7 @@ def get_emoji(language):
         "la": "🇲🇽",
         "multi": "🌍"
     }
-    return emoji_dict.get(language, "🇬🇧")
+    return emoji_dict.get(language, "❔")
 
 def filter_by_availability(item):
     if item["name"].startswith(INSTANTLY_AVAILABLE):
@@ -61,6 +66,9 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
     for language in torrent_item.languages:
         title += f"{get_emoji(language)}/"
     title = title[:-1]
+    subtitle_hint = detect_subtitle_hint(torrent_item.raw_title)
+    if subtitle_hint:
+        title += f"\n📝 {subtitle_hint} SUB (filename)"
 
     if debrid:
         if torrent_item.availability == True:
@@ -82,7 +90,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             }
         })
 
-    if torrenting and torrent_item.privacy == "public":
+    if torrenting and torrent_item.privacy == "public" and not getattr(torrent_item, 'direct_file_missing', False):
         name = f"{DIRECT_TORRENT}\n"
         if parsed_data.quality and parsed_data.quality != "Unknown" and \
                 parsed_data.quality != "":
@@ -92,7 +100,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             "name": name,
             "description": title,
             "infoHash": torrent_item.info_hash,
-            "fileIdx": int(torrent_item.file_index) if torrent_item.file_index else None,
+            "fileIdx": getattr(torrent_item, "direct_file_index", None),
             "behaviorHints":{
                 "bingeGroup": f"stremio-jackett-{torrent_item.info_hash}",
                 "filename": torrent_item.file_name if torrent_item.file_name is not None else torrent_item.raw_title

@@ -16,7 +16,7 @@ class Cinemeta(MetadataProvider):
         
         while retry_count < max_retries:
             try:
-                response = requests.get(url)
+                response = requests.get(url, timeout=(3, 10))
                 data = response.json()
                 
                 # Check if data or data["meta"] is empty

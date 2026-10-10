@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from debrid.get_debrid_service import get_debrid_service
 from jackett.jackett_result import JackettResult
@@ -122,8 +123,19 @@ formatter = logging.Formatter('[%(asctime)s] p%(process)s {%(pathname)s:%(lineno
 
 logger.info("Started Jackett Addon")
 
+# Limit the number of simultaneous heavy searches without consuming
+# threadpool workers while other requests are queued. Playback stays free.
+_search_slots = asyncio.Semaphore(3)
+
 @app.get("/{config}/stream/{stream_type}/{stream_id}")
 async def get_results(config: str, stream_type: str, stream_id: str, request: Request):
+    async with _search_slots:
+        return await run_in_threadpool(
+            _get_results_sync, config, stream_type, stream_id, request
+        )
+
+
+def _get_results_sync(config: str, stream_type: str, stream_id: str, request: Request):
     logger.info(f"==== NEW REQUEST ARRIVED: {stream_type} | ID: {stream_id} ====")
     jackett_service = None
     start = time.time()
@@ -167,7 +179,7 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
     debrid_service = get_debrid_service(config)
 
-    torrent_service = TorrentService()
+    torrent_service = TorrentService(media)
 
     search_results = []
 
@@ -339,7 +351,7 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
     return {"streams": stream_list}
 
 @app.api_route("/playback/{config}/{query}", methods=["GET", "HEAD"])
-async def get_playback(config: str, query: str, request: Request):
+def get_playback(config: str, query: str, request: Request):
     try:
         if not query:
             raise HTTPException(status_code=400, detail="Query required.")
@@ -356,7 +368,8 @@ async def get_playback(config: str, query: str, request: Request):
         link = debrid_service.get_stream_link(query, ip)
 
         logger.debug("Playback link resolved")
-        return RedirectResponse(url=link, status_code=status.HTTP_301_MOVED_PERMANENTLY)
+        return RedirectResponse(url=link, status_code=status.HTTP_302_FOUND,
+                                headers={"Cache-Control": "no-store"})
 
     except Exception as e:
         logger.error(f"An error occurred in playback: {e}")
