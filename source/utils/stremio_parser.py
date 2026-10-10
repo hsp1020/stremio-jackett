@@ -105,8 +105,9 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
                 "filename": torrent_item.file_name if torrent_item.file_name is not None else torrent_item.raw_title
             }
         }
-        if torrent_item.direct_file_index is not None:
-            direct_stream["fileIdx"] = torrent_item.direct_file_index
+        file_idx = getattr(torrent_item, "direct_file_index", None)
+        if file_idx is not None:
+            direct_stream["fileIdx"] = file_idx
         results.append(direct_stream)
 
 def parse_to_stremio_streams(torrent_items: List[TorrentItem], config, media):
