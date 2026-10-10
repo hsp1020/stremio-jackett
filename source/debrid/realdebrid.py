@@ -231,6 +231,19 @@ class RealDebrid(BaseDebrid):
         if by_id:
             return by_id
         if len(videos) == 1:
+            # Only use the single-file fallback if its name does not
+            # explicitly identify a different episode or season.
+            try:
+                from RTN import parse
+                parsed = parse(str(videos[0]['path']))
+                requested_season = int(str(season).replace('S', '')) if season is not None else None
+                requested_episode = int(str(episode).replace('E', '')) if episode is not None else None
+                if parsed.episodes and requested_episode not in parsed.episodes:
+                    return None
+                if parsed.seasons and requested_season not in parsed.seasons:
+                    return None
+            except (AttributeError, TypeError, ValueError):
+                pass
             return videos[0]
         return None
 
