@@ -147,9 +147,9 @@ class TorBox(BaseDebrid):
     def get_json_response(self, url, method='get', **kwargs):
         try:
             if method == 'get':
-                response = requests.get(url, headers=self.headers, **kwargs)
+                response = requests.get(url, headers=self.headers, timeout=kwargs.pop('timeout', (5, 20)), **kwargs)
             elif method == 'post':
-                response = requests.post(url, headers=self.headers, **kwargs)
+                response = requests.post(url, headers=self.headers, timeout=kwargs.pop('timeout', (5, 20)), **kwargs)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
