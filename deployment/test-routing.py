@@ -757,3 +757,78 @@ with (
     assert rd.get_stream_link(json.dumps(old_query)) == "https://video.test/e03"
 
 print("FileIdx, Real-Debrid ID, P2P fallback and cached playback tests passed")
+
+
+# Request-local duplicate /dl optimization and measurement regressions.
+from concurrent.futures import Future
+
+def completed_prefetch(outcome):
+    future = Future()
+    future.set_result(outcome)
+    return future
+
+same_dl = "http://localhost/dl/test"
+shared_service = TorrentService()
+shared_service._prefetch_futures[same_dl] = completed_prefetch(
+    ("magnet:?xt=urn:btih:" + "a" * 40, 302)
+)
+shared_session = MockSession([])
+for _ in range(2):
+    item = shared_service._TorrentService__process_web_url(
+        make_torrent_item("movie"), shared_session
+    )
+    assert item.info_hash == "a" * 40
+assert shared_session.urls == []  # No second GET for repeated URL.
+assert shared_service._perf["prefetch_shared_consumes"] == 1
+
+not_found_service = TorrentService()
+not_found_service._prefetch_futures[same_dl] = completed_prefetch((None, 404))
+not_found_session = MockSession([])
+for _ in range(2):
+    assert not_found_service._TorrentService__process_web_url(
+        make_torrent_item("movie"), not_found_session
+    ) is not None
+assert not_found_session.urls == []  # 404 status also shared per request.
+assert not_found_service._perf["prefetch_shared_consumes"] == 1
+
+# HTTP 200 still falls back to the existing full GET. Instrument it first;
+# do not cache a 16 MiB .torrent in all eight prefetch workers.
+http200_service = TorrentService()
+http200_service._prefetch_futures[same_dl] = completed_prefetch((None, 200))
+http200_response = StreamResponse(200, torrent_bytes(), "application/x-bittorrent")
+http200_session = MockSession([http200_response])
+http200_item = http200_service._TorrentService__process_web_url(
+    make_torrent_item("movie"), http200_session
+)
+assert http200_item.direct_file_index == 0
+assert http200_session.urls == [same_dl]
+assert http200_service._perf["prefetch_followup_get_200"] == 1
+
+# Jackett metrics count requests without caching search responses or
+# truncating valid result sets.
+count_service = JackettService({"jackettApiKey": "measure", "jackettHost": "http://localhost"})
+with patch("jackett.jackett_service.requests.Session.get",
+           side_effect=[SimpleNamespace(status_code=200),
+                        SimpleNamespace(status_code=404),
+                        ConnectionError("unavailable")]):
+    assert count_service._search_torznab_request("http://localhost/api", {}).status_code == 200
+    assert count_service._search_torznab_request("http://localhost/api", {}).status_code == 404
+    try:
+        count_service._search_torznab_request("http://localhost/api", {})
+    except ConnectionError:
+        pass
+    else:
+        raise AssertionError("Jackett HTTP failure was suppressed")
+assert count_service._metrics["search_http_requests"] == 3
+assert count_service._metrics["search_http_non_2xx"] == 1
+assert count_service._metrics["search_http_errors"] == 1
+assert count_service._metrics["search_http_seconds"] >= 0
+assert count_service._metrics["xml_documents"] == 0
+xml_items = count_service._JackettService__get_torrent_links_from_xml(broken_feed)
+assert len(xml_items) == 2
+assert count_service._metrics["xml_documents"] == 1
+assert count_service._metrics["xml_items"] == 2
+assert count_service._metrics["xml_bytes"] == len(broken_feed)
+assert count_service._metrics["xml_seconds"] >= 0
+
+print("Request-local prefetch sharing and measurement counters passed")
