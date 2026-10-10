@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import urllib.parse
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
@@ -32,8 +32,9 @@ def get_thread_session():
     return session
 
 class TorrentService:
-    def __init__(self):
+    def __init__(self, media=None):
         self.logger = setup_logger(__name__)
+        self._media = media
 
         self._prefetch_executor = None
         self._prefetch_futures = {}
@@ -74,12 +75,14 @@ class TorrentService:
             response = session.get(
                 link,
                 allow_redirects=False,
-                timeout=REQUEST_TIMEOUT
+                timeout=REQUEST_TIMEOUT,
+                stream=True,
             )
 
             elapsed = time.perf_counter() - start
             status_code = response.status_code
             location = response.headers.get("Location")
+            response.close()  # The prefetch only needs headers, never a torrent body.
 
             if (
                 status_code in [301, 302, 303, 307, 308]
@@ -349,77 +352,82 @@ class TorrentService:
                 return result
 
         try:
-
+            # Do not follow untrusted redirects outside HTTP(S)/magnet schemes.
             for _ in range(5):
-
+                if urlparse(current_url).scheme not in ('http', 'https'):
+                    break
                 try:
                     perf_http_start = time.perf_counter()
-
                     response = session.get(
-                        current_url,
-                        allow_redirects=False,
-                        timeout=REQUEST_TIMEOUT
+                        current_url, allow_redirects=False,
+                        timeout=REQUEST_TIMEOUT, stream=True,
                     )
-
-                    perf_http_elapsed = time.perf_counter() - perf_http_start
-
+                    elapsed = time.perf_counter() - perf_http_start
                     with self._perf_lock:
                         self._perf["http_requests"] += 1
-                        self._perf["http_sum"] += perf_http_elapsed
-                        if perf_http_elapsed > self._perf["http_max"]:
-                            self._perf["http_max"] = perf_http_elapsed
-
-                except requests.RequestException as re:
+                        self._perf["http_sum"] += elapsed
+                        self._perf["http_max"] = max(self._perf["http_max"], elapsed)
+                except requests.RequestException:
                     with self._perf_lock:
                         self._perf["http_errors"] += 1
-
                     break
 
-                if response.status_code in [301, 302, 303, 307, 308]:
-                    with self._perf_lock:
-                        self._perf["redirects"] += 1
-
-                    location = response.headers.get("Location")
-                    if not location:
-                        break
-
-                    if location.startswith("magnet:"):
+                try:
+                    if response.status_code in (301, 302, 303, 307, 308):
                         with self._perf_lock:
-                            self._perf["redirect_to_magnet"] += 1
-
-                        result.magnet = location
-
-                        return self.__process_magnet(result)
-
-                    current_url = location
-                    continue
-
-                if response.status_code == 200:
-                    content = response.content
-                    ctype = response.headers.get("Content-Type", "").lower()
-
-                    if "application/x-bittorrent" in ctype or content.startswith(b'd8:'):
-                        with self._perf_lock:
-                            self._perf["torrent_files"] += 1
-
-                        return self.__process_torrent(result, content)
-
-                    if "text/html" in ctype:
-                        import re
-                        magnet_match = re.search(r'magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}', response.text)
-                        if magnet_match:
+                            self._perf["redirects"] += 1
+                        location = response.headers.get("Location")
+                        if not location:
+                            break
+                        if location.startswith("magnet:"):
                             with self._perf_lock:
-                                self._perf["html_magnets"] += 1
-
-                            result.magnet = magnet_match.group(0)
+                                self._perf["redirect_to_magnet"] += 1
+                            result.magnet = location
                             return self.__process_magnet(result)
+                        new_url = urljoin(current_url, location)
+                        if urlparse(new_url).scheme not in ('http', 'https'):
+                            break
+                        current_url = new_url
+                        continue
 
-                        with self._perf_lock:
-                            self._perf["html_external"] += 1
-
-                        return result
-
-                break
+                    if response.status_code == 200:
+                        # Bound in-memory downloads; some indexers serve HTML
+                        # or large files where a small .torrent was expected.
+                        max_bytes = 16 * 1024 * 1024
+                        chunks = []
+                        length = 0
+                        oversized = False
+                        for chunk in response.iter_content(chunk_size=65536):
+                            length += len(chunk)
+                            if length > max_bytes:
+                                oversized = True
+                                break
+                            chunks.append(chunk)
+                        if oversized:
+                            self.logger.warning("Torrent URL response exceeded %s bytes", max_bytes)
+                            break
+                        content = b''.join(chunks)
+                        ctype = response.headers.get("Content-Type", "").lower()
+                        if "application/x-bittorrent" in ctype or content.startswith(b'd8:'):
+                            with self._perf_lock:
+                                self._perf["torrent_files"] += 1
+                            return self.__process_torrent(result, content)
+                        if "text/html" in ctype:
+                            magnet_match = re.search(
+                                r'magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,40}',
+                                content.decode(response.encoding or 'utf-8', errors='replace'),
+                            )
+                            if magnet_match:
+                                with self._perf_lock:
+                                    self._perf["html_magnets"] += 1
+                                result.magnet = magnet_match.group(0)
+                                return self.__process_magnet(result)
+                            with self._perf_lock:
+                                self._perf["html_external"] += 1
+                            return result
+                    break
+                finally:
+                    response.close()
 
         except Exception as e:
             self.logger.debug(f"Failed to process URL {result.link}: {e}")
@@ -444,29 +452,36 @@ class TorrentService:
         )
 
         if "files" not in metadata["info"]:
-
-            result.file_index = 1
+            result.file_index = 1  # Preserve Debrid's existing 1-based ID.
+            result.direct_file_index = 0  # Stremio uses a zero-based position.
             return result
 
         result.files = metadata["info"]["files"]
 
         if result.type == "series":
-            file_details = self.__find_episode_file(
-                result.files,
-                result.parsed_data.seasons,
-                result.parsed_data.episodes
-            )
-
+            if self._media is not None and hasattr(self._media, 'season'):
+                seasons = [int(str(self._media.season).replace('S', ''))]
+                episodes = [int(str(self._media.episode).replace('E', ''))]
+            else:
+                seasons = result.parsed_data.seasons
+                episodes = result.parsed_data.episodes
+            file_details = self.__find_episode_file(result.files, seasons, episodes)
             if file_details is not None:
-
                 result.file_index = file_details["file_index"]
+                result.direct_file_index = result.file_index - 1
                 result.file_name = file_details["title"]
                 result.size = file_details["size"]
             else:
-
-                result.file_index = 1
+                # Let Debrid resolve by requested episode; do not direct-play
+                # the first unrelated file in a known season pack.
+                result.file_index = None
+                result.direct_file_missing = True
         else:
             result.file_index = self.__find_movie_file(result.files)
+            if result.file_index is not None:
+                result.direct_file_index = result.file_index - 1
+            else:
+                result.direct_file_missing = True
 
         return result
 
@@ -611,4 +626,4 @@ class TorrentService:
 
             current_file_index += 1
 
-        return max_file_index
+        return max_file_index if max_size > 0 else None
