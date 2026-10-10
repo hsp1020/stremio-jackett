@@ -190,73 +190,20 @@ class TorrentSmartContainer:
         torrent_item.size = file["size"]
 
     def __build_items_dict_by_infohash(self, items: List[TorrentItem]):
-        self.logger.info(f"=== 중복 제거 프로세스 시작 (총 아이템 수: {len(items)}) ===")
-
-        priority_order = {
-            "torrentzota": 1,
-            "bt4g": 3,
-            "52bt": 4,
-            "stremthru": 5,
-        }
-
-        def get_priority(indexer_name: str) -> int:
-            if not indexer_name:
-                return 999
-
-            normalized = indexer_name.lower().strip()
-
-            if (
-                normalized.startswith("btdigg")
-                and normalized[len("btdigg"):].isdigit()
-            ):
-                return 2
-
-            return priority_order.get(normalized, 999)
-
-        items_dict = dict()
-
+        items_dict = {}
         for item in items:
-
             if item.info_hash:
                 unique_key = item.info_hash
-                key_type = "HASH"
             elif item.link:
                 unique_key = f"ext_{item.link}"
-                key_type = "LINK"
             else:
                 unique_key = f"tmp_{item.raw_title}"
-                key_type = "TITLE"
 
-            indexer = getattr(item, 'indexer', 'unknown')
-            priority = get_priority(indexer)
-            seeders = int(item.seeders or 0)
-
-            if unique_key not in items_dict:
-
+            previous = items_dict.get(unique_key)
+            if previous is None or int(item.seeders or 0) > int(previous.seeders or 0):
                 items_dict[unique_key] = item
 
-            else:
-
-                existing_item = items_dict[unique_key]
-                existing_indexer = getattr(existing_item, 'indexer', 'unknown')
-                existing_priority = get_priority(existing_indexer)
-                existing_seeders = int(existing_item.seeders or 0)
-
-                if priority < existing_priority:
-                    items_dict[unique_key] = item
-                    self.logger.info(f"  -> [교체 완료] 인덱서 우선순위 높음: {indexer}({priority}) > {existing_indexer}({existing_priority})")
-
-                elif priority == existing_priority:
-                    if seeders > existing_seeders:
-                        items_dict[unique_key] = item
-                        self.logger.info(f"  -> [교체 완료] 동일 인덱서/순위 내 시더 우위: {seeders} > {existing_seeders}")
-                    else:
-                        pass
-
-                else:
-                    pass
-
-        self.logger.info(f"=== 중복 제거 완료 (남은 아이템: {len(items_dict)} / 전체: {len(items)}) ===")
+        self.logger.info(f"중복 제거 완료: {len(items_dict)} / {len(items)}")
         return items_dict
 
     def __explore_folders(self, folder, files, file_index, type, season=None, episode=None):

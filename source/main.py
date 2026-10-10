@@ -152,6 +152,9 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
     perf_metadata_start = time.perf_counter()
 
     media = metadata_provider.get_metadata(stream_id, stream_type)
+    if media is None:
+        logger.warning("Metadata unavailable for %s %s", stream_type, stream_id)
+        return {"streams": []}
 
     logger.info(
         f"[PERF] Metadata provider get_metadata: "

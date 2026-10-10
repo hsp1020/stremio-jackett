@@ -60,22 +60,10 @@ class JackettService:
     MOVIE_NO_YEAR_MERGE_THRESHOLD = 25
     MOVIE_NO_YEAR_RESULT_TAG = 'movie_no_year'
 
-    BT4G_MIN_INTERVAL = 61
-    BT4G_RATE_LIMIT_STATE_KEY = 'bt4g_global'
-    CLOUDFLARE_SESSION_DURATION = 1200
-
     LANGUAGE_ENGLISH = 'en'
     LANGUAGE_KOREAN = 'ko'
     LANGUAGE_CHINESE = 'zh'
     PRESERVE_FULL_INDEXER_LOCALES = frozenset({'pt'})
-
-    KITSU_ID_PREFIX = 'kitsu:'
-    KITSU_BLOCKED_INDEXER_LANGUAGES = frozenset({LANGUAGE_KOREAN})
-    KITSU_PART_PATTERN_EN = re.compile(
-        r"part\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-        re.IGNORECASE,
-    )
-    KITSU_PART_PATTERN_JP = re.compile(r"\d+クール")
 
     DISABLE_IMDB_SEARCH_ENV = 'DISABLE_JACKETT_IMDB_SEARCH'
     IMDB_DISABLED_VALUE = 'true'
@@ -85,52 +73,6 @@ class JackettService:
     TORZNAB_SERIES_SEARCH_TYPE = 'tvsearch'
     TORZNAB_SERIES_CATEGORY = '5000'
 
-    DEFAULT_INDEXER_POLICY = {
-        'search_all_languages': False,
-        'series_title_only': False,
-        'is_bt4g_rate_limited': False,
-        'requires_warmup': False,
-        'is_50bt_69bt': False,
-    }
-
-    EXACT_INDEXER_POLICIES = {
-        'bt4g': {
-            'search_all_languages': True,
-            'series_title_only': False,
-            'is_bt4g_rate_limited': True,
-            'requires_warmup': True,
-        },
-    }
-
-    PREFIX_INDEXER_POLICIES = {
-        'btdigg': {
-            'search_all_languages': True,
-        },
-    }
-
-    FAMILY_INDEXER_POLICIES = (
-        {
-            'name': '50bt_69bt',
-            'matcher': 'numeric_prefix_range',
-            'numeric_length': 2,
-            'minimum': 50,
-            'maximum': 69,
-            'marker': 'bt',
-            'policy': {
-                'search_all_languages': True,
-                'is_50bt_69bt': True,
-            },
-        },
-    )
-
-    LIMITED_WORD_COUNT = 8
-
-    _last_request_times = {}
-    _rate_limit_lock = threading.Lock()
-
-    _indexer_warmup_locks = {}
-    _warmup_locks_mutex = threading.Lock()
-
     def __init__(self, config):
         self.logger = setup_logger(__name__)
         self._indexers = None
@@ -138,66 +80,11 @@ class JackettService:
         self.__base_url = f"{config['jackettHost']}/api/v2.0"
         self.__session = requests.Session()
 
-    def _matches_indexer_family(self, idx_id, family_policy):
-        if family_policy['matcher'] != 'numeric_prefix_range':
-            return False
-
-        numeric_length = family_policy['numeric_length']
-        numeric_prefix = idx_id[:numeric_length]
-        marker = family_policy['marker']
-        marker_end = numeric_length + len(marker)
-
-        return (
-            numeric_prefix.isdigit()
-            and family_policy['minimum']
-            <= int(numeric_prefix)
-            <= family_policy['maximum']
-            and idx_id[numeric_length:marker_end] == marker
-        )
-
     def _get_indexer_policy(self, indexer):
-        idx_id = str(indexer.id).lower().strip()
-        idx_lang = str(indexer.language).lower().split('-')[0].strip()
-
-        policy = self.DEFAULT_INDEXER_POLICY.copy()
-
-        for family_policy in self.FAMILY_INDEXER_POLICIES:
-            if self._matches_indexer_family(idx_id, family_policy):
-                policy.update(family_policy['policy'])
-
-        for prefix, prefix_policy in self.PREFIX_INDEXER_POLICIES.items():
-            if idx_id.startswith(prefix):
-                policy.update(prefix_policy)
-
-        policy.update(self.EXACT_INDEXER_POLICIES.get(idx_id, {}))
-        policy.update({
-            'id': idx_id,
-            'base_language': idx_lang,
-            'is_korean_indexer': idx_lang == self.LANGUAGE_KOREAN,
-        })
-        return policy
-
-    def _is_kitsu_id(self, media_id):
-        normalized_media_id = str(media_id).lower().strip()
-        return normalized_media_id.startswith(self.KITSU_ID_PREFIX)
-
-    def _should_skip_kitsu_indexer(self, policy, is_kitsu_id):
-        return (
-            is_kitsu_id
-            and policy['base_language'] in self.KITSU_BLOCKED_INDEXER_LANGUAGES
-        )
-
-    def _get_warmup_lock(self, indexer_id):
-        with JackettService._warmup_locks_mutex:
-            if indexer_id not in JackettService._indexer_warmup_locks:
-                JackettService._indexer_warmup_locks[indexer_id] = threading.Lock()
-            return JackettService._indexer_warmup_locks[indexer_id]
-
-    def _has_valid_session(self, indexer_id):
-        with JackettService._rate_limit_lock:
-            last_time = JackettService._last_request_times.get(indexer_id, 0)
-            elapsed = time.time() - last_time
-            return elapsed < JackettService.CLOUDFLARE_SESSION_DURATION
+        return {
+            'base_language': str(indexer.language).lower().split('-')[0].strip(),
+            'search_all_languages': str(indexer.id).lower().strip().startswith('btdigg'),
+        }
 
     def _get_unique_key(self, result: JackettResult):
         if result.info_hash:
@@ -230,29 +117,6 @@ class JackettService:
 
         return deduplicated_tasks
 
-    def _build_query_string(self, title, suffix, is_50bt_69bt, has_year=False):
-        if not is_50bt_69bt:
-            return f"{title} {suffix}".strip()
-
-        extra_words = len(suffix.split()) if suffix else 0
-        if re.search(r'[sS]\d+[eE]\d+', suffix):
-            extra_words += 1
-
-        if has_year:
-            extra_words += 1
-
-        allowed_title_words = self.LIMITED_WORD_COUNT - extra_words
-        if allowed_title_words < 1:
-            allowed_title_words = 1
-
-        limited_title = ' '.join(title.split()[:allowed_title_words])
-        final_query = f"{limited_title} {suffix}".strip()
-        self.logger.debug(
-            f"[_build_query_string] Base '{title}' + Suffix '{suffix}' "
-            f"(has_year={has_year}) => '{final_query}'"
-        )
-        return final_query
-
     def search(
         self,
         media,
@@ -274,64 +138,26 @@ class JackettService:
 
         def thread_target(media, indexer):
             start_time = time.time()
-            proceed_with_search = True
-            policy = self._get_indexer_policy(indexer)
-
-            if policy['is_bt4g_rate_limited']:
-                with JackettService._rate_limit_lock:
-                    now = time.time()
-                    last_req_time = JackettService._last_request_times.get(
-                        self.BT4G_RATE_LIMIT_STATE_KEY,
-                        0,
+            try:
+                self.logger.info(f"Searching on {indexer.title} ({indexer.id})")
+                if isinstance(media, Movie):
+                    self.__search_movie_indexer(
+                        media, indexer, results_queue, found_results_count,
+                        count_lock, unique_seen_keys, seen_lock,
                     )
-                    elapsed = now - last_req_time
-
-                    if elapsed < JackettService.BT4G_MIN_INTERVAL:
-                        self.logger.warning(
-                            f"Rate limiting bt4g: Skipping. Elapsed: {elapsed:.2f}s"
-                        )
-                        proceed_with_search = False
-                    else:
-                        self.logger.info("Sufficient time for bt4g. Proceeding.")
-                        JackettService._last_request_times[
-                            self.BT4G_RATE_LIMIT_STATE_KEY
-                        ] = now
-
-            if proceed_with_search:
-                try:
-                    self.logger.info(f"Searching on {indexer.title} ({indexer.id})")
-                    if isinstance(media, Movie):
-                        self.__search_movie_indexer(
-                            media,
-                            indexer,
-                            results_queue,
-                            found_results_count,
-                            count_lock,
-                            unique_seen_keys,
-                            seen_lock,
-                        )
-                    elif isinstance(media, Series):
-                        self.__search_series_indexer(
-                            media,
-                            indexer,
-                            results_queue,
-                            found_results_count,
-                            count_lock,
-                            unique_seen_keys,
-                            seen_lock,
-                        )
-                    else:
-                        raise TypeError("Only Movie and Series allowed!")
-
-                    self.logger.info(
-                        f"Search logic finished on {indexer.title} "
-                        f"({time.time() - start_time:.2f}s)"
+                elif isinstance(media, Series):
+                    self.__search_series_indexer(
+                        media, indexer, results_queue, found_results_count,
+                        count_lock, unique_seen_keys, seen_lock,
                     )
-
-                    with JackettService._rate_limit_lock:
-                        JackettService._last_request_times[indexer.id] = time.time()
-                except Exception as e:
-                    self.logger.error(f"Error search thread {indexer.title}: {e}")
+                else:
+                    raise TypeError("Only Movie and Series allowed!")
+                self.logger.info(
+                    f"Search logic finished on {indexer.title} "
+                    f"({time.time() - start_time:.2f}s)"
+                )
+            except Exception as e:
+                self.logger.error(f"Error search thread {indexer.title}: {e}")
 
         for indexer in indexers:
             thread = threading.Thread(target=thread_target, args=(media, indexer))
@@ -478,9 +304,6 @@ class JackettService:
         if not tasks:
             return
 
-        tasks_to_run_parallel = tasks
-        policy = self._get_indexer_policy(indexer)
-
         def process_and_count(new_results, result_tag=None):
             if not new_results:
                 return
@@ -502,37 +325,10 @@ class JackettService:
                 with count_lock:
                     counter[0] += unique_increment
 
-        if policy['requires_warmup'] and not self._has_valid_session(indexer.id):
-            warmup_lock = self._get_warmup_lock(indexer.id)
-            if warmup_lock.acquire(blocking=False):
-                try:
-                    self.logger.info(f"Running exclusive warm-up for {indexer.title}...")
-                    first_task = tasks[0]
-                    first_params, first_name = first_task[0], first_task[1]
-                    first_result_tag = first_task[2] if len(first_task) > 2 else None
-                    try:
-                        first_result = search_func(first_params, first_name)
-                        process_and_count(first_result, first_result_tag)
-
-                        with JackettService._rate_limit_lock:
-                            JackettService._last_request_times[indexer.id] = time.time()
-                    except Exception as e:
-                        self.logger.warning(f"Warm-up failed for {indexer.title}: {e}")
-
-                    tasks_to_run_parallel = tasks[1:]
-                finally:
-                    warmup_lock.release()
-            else:
-                self.logger.warning(
-                    f"Indexer {indexer.title} is busy (warm-up lock). "
-                    "Skipping (Non-Blocking)."
-                )
-                return
-
-        if tasks_to_run_parallel:
-            with ThreadPoolExecutor(max_workers=len(tasks_to_run_parallel)) as executor:
+        if tasks:
+            with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
                 futures = {}
-                for task in tasks_to_run_parallel:
+                for task in tasks:
                     params, name = task[0], task[1]
                     result_tag = task[2] if len(task) > 2 else None
                     future = executor.submit(search_func, params, name)
@@ -558,119 +354,76 @@ class JackettService:
         policy = self._get_indexer_policy(indexer)
         idx_lang = policy['base_language']
         mov_id = str(movie.id).lower().strip()
+        has_imdb_search_capability = (
+            os.getenv(self.DISABLE_IMDB_SEARCH_ENV) != self.IMDB_DISABLED_VALUE
+            and re.fullmatch(r'tt\d+', mov_id) is not None
+            and self.IMDB_ID_PARAM in (indexer.movie_search_capatabilities or [])
+        )
+        english_index = next((
+            i for i, lang in enumerate(movie.languages)
+            if str(lang).lower().split('-')[0] == 'en'
+            and i < len(movie.titles) and movie.titles[i]
+        ), None)
+        imdb_only = has_imdb_search_capability and english_index is None
 
-        is_kitsu_id = self._is_kitsu_id(mov_id)
-        is_50bt_69bt = policy['is_50bt_69bt']
-
-        if self._should_skip_kitsu_indexer(policy, is_kitsu_id):
-            self.logger.info(
-                f"🚫 [SKIP] {indexer.title} ({policy['id']}) skipped. "
-                f"Reason: Korean Indexer + Kitsu ID ({mov_id})"
-            )
-            return
-
-        if is_kitsu_id:
-            languages = movie.languages * len(movie.titles)
-            titles = [title for title in movie.titles for _ in movie.languages]
-            has_imdb_search_capability = False
+        if imdb_only:
+            languages, titles = [], []
+        elif policy['search_all_languages']:
+            languages, titles = movie.languages, movie.titles
+        elif has_imdb_search_capability:
+            languages = [movie.languages[english_index]]
+            titles = [movie.titles[english_index]]
+        elif idx_lang == self.LANGUAGE_KOREAN:
+            indices = [
+                i for i, title in enumerate(movie.titles)
+                if movie.languages[i] == self.LANGUAGE_KOREAN
+                or self.LANGUAGE_KOREAN in detect_languages(title)
+            ]
+            if not indices:
+                indices = [0]
+            languages = [self.LANGUAGE_KOREAN for _ in indices]
+            titles = [movie.titles[i] for i in indices]
         else:
-            has_imdb_search_capability = (
-                os.getenv(self.DISABLE_IMDB_SEARCH_ENV) != self.IMDB_DISABLED_VALUE
-                and indexer.movie_search_capatabilities is not None
-                and self.IMDB_ID_PARAM in indexer.movie_search_capatabilities
-            )
-
-            if policy['search_all_languages']:
-                languages = movie.languages
-                titles = movie.titles
-            elif has_imdb_search_capability:
-                languages = [self.LANGUAGE_ENGLISH]
-                index_of_language = [
-                    i
-                    for i, lang in enumerate(movie.languages)
-                    if lang == self.LANGUAGE_ENGLISH
-                ][0]
-                titles = [movie.titles[index_of_language]]
-            elif idx_lang == self.LANGUAGE_KOREAN:
-                index_of_language = []
-                for i, title in enumerate(movie.titles):
-                    if (
-                        movie.languages[i] == self.LANGUAGE_KOREAN
-                        or self.LANGUAGE_KOREAN in detect_languages(title)
-                    ):
-                        index_of_language.append(i)
-                if not index_of_language:
-                    index_of_language = [0]
-                languages = [self.LANGUAGE_KOREAN for _ in index_of_language]
-                titles = [movie.titles[i] for i in index_of_language]
-            else:
-                index_of_language = [
-                    i
-                    for i, lang in enumerate(movie.languages)
-                    if lang == indexer.language or lang == self.LANGUAGE_ENGLISH
-                ]
-                if not index_of_language:
-                    index_of_language = [0]
-                languages = [movie.languages[i] for i in index_of_language]
-                titles = [movie.titles[i] for i in index_of_language]
+            indices = [
+                i for i, lang in enumerate(movie.languages)
+                if lang == indexer.language or lang == self.LANGUAGE_ENGLISH
+            ]
+            if not indices:
+                indices = [0]
+            languages = [movie.languages[i] for i in indices]
+            titles = [movie.titles[i] for i in indices]
 
         titles = [re.sub(r'\s+', ' ', title).strip() for title in titles]
 
         def search_with_params(params_dict, search_type):
-            kitsu_task_start = time.perf_counter()
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
                 response = self.__session.get(
-                    url,
-                    params=params_dict,
-                    timeout=self.HTTP_TIMEOUT,
+                    url, params=params_dict, timeout=self.HTTP_TIMEOUT,
                 )
-                self.logger.debug(
-                    f"[Jackett][Movie][{search_type}] URL: {response.request.url}"
-                )
+                self.logger.debug(f"[Jackett][Movie][{search_type}] URL: {response.request.url}")
                 response.raise_for_status()
-                task_results = self.__get_torrent_links_from_xml(
-                    response.text
-                )
-
-                if is_kitsu_id:
-                    self.logger.info(
-                        "[PERF][KITSU-SEARCH] task: "
-                        "media=movie / indexer=%s / "
-                        "pattern=%s / elapsed=%.3fs / "
-                        "results=%s",
-                        indexer.title,
-                        search_type,
-                        time.perf_counter() - kitsu_task_start,
-                        len(task_results),
-                    )
-
-                return task_results
+                return self.__get_torrent_links_from_xml(response.text)
             except Exception as e:
-                if is_kitsu_id:
-                    self.logger.info(
-                        "[PERF][KITSU-SEARCH] task: "
-                        "media=movie / indexer=%s / "
-                        "pattern=%s / elapsed=%.3fs / "
-                        "FAILED",
-                        indexer.title,
-                        search_type,
-                        time.perf_counter() - kitsu_task_start,
-                    )
-
-                self.logger.error(
-                    f"Movie search [{search_type}] failed for {indexer.title}: {str(e)}"
-                )
+                self.logger.error(f"Movie search [{search_type}] failed for {indexer.title}: {e}")
                 return []
+
+        if imdb_only:
+            params = {
+                'apikey': self.__api_key,
+                't': self.TORZNAB_MOVIE_SEARCH_TYPE,
+                'cat': self.TORZNAB_MOVIE_CATEGORY,
+                self.IMDB_ID_PARAM: mov_id,
+            }
+            self.__execute_search_tasks(
+                indexer, [(params, "IMDbOnly")], search_with_params,
+                results_queue, counter, count_lock, unique_seen_keys, seen_lock,
+            )
+            return
 
         phase1_tasks = []
         for index, lang in enumerate(languages):
-            query_value = self._build_query_string(
-                titles[index],
-                '',
-                is_50bt_69bt,
-                has_year=True,
-            )
+            query_value = titles[index]
             params = {
                 'apikey': self.__api_key,
                 't': self.TORZNAB_MOVIE_SEARCH_TYPE,
@@ -678,7 +431,7 @@ class JackettService:
                 'q': query_value,
                 'year': movie.year,
             }
-            if has_imdb_search_capability and not is_kitsu_id:
+            if has_imdb_search_capability:
                 params[self.IMDB_ID_PARAM] = mov_id
             phase1_tasks.append((params, f"WithYear-{lang}"))
 
@@ -689,19 +442,14 @@ class JackettService:
                 or self.LANGUAGE_KOREAN in detect_languages(titles[index])
             )
             if is_korean_search:
-                query_value = self._build_query_string(
-                    titles[index],
-                    '',
-                    is_50bt_69bt,
-                    has_year=False,
-                )
+                query_value = titles[index]
                 params_no_year = {
                     'apikey': self.__api_key,
                     't': self.TORZNAB_MOVIE_SEARCH_TYPE,
                     'cat': self.TORZNAB_MOVIE_CATEGORY,
                     'q': query_value,
                 }
-                if has_imdb_search_capability and not is_kitsu_id:
+                if has_imdb_search_capability:
                     params_no_year[self.IMDB_ID_PARAM] = mov_id
 
                 no_year_tasks.append(
@@ -716,60 +464,6 @@ class JackettService:
             self.logger.info(
                 f"[MovieSearchPlan] Starting year and no-year searches in parallel "
                 f"({len(phase1_tasks)} year, {len(no_year_tasks)} no-year)"
-            )
-
-        if is_kitsu_id:
-            kitsu_generated_tasks = (
-                phase1_tasks + no_year_tasks
-            )
-
-            kitsu_seen_params = set()
-            kitsu_pattern_counts = {}
-            kitsu_unique_task_count = 0
-
-            for task in kitsu_generated_tasks:
-                params_dict = task[0]
-                pattern_name = task[1]
-
-                params_key = tuple(
-                    sorted(
-                        (key, str(value))
-                        for key, value
-                        in params_dict.items()
-                    )
-                )
-
-                if params_key in kitsu_seen_params:
-                    continue
-
-                kitsu_seen_params.add(params_key)
-                kitsu_unique_task_count += 1
-
-                pattern_group = pattern_name.rsplit(
-                    "-",
-                    1,
-                )[0]
-
-                kitsu_pattern_counts[
-                    pattern_group
-                ] = (
-                    kitsu_pattern_counts.get(
-                        pattern_group,
-                        0,
-                    )
-                    + 1
-                )
-
-            self.logger.info(
-                "[PERF][KITSU-SEARCH] plan: "
-                "media=movie / indexer=%s / "
-                "aliases=%s / tasks_raw=%s / "
-                "tasks_unique=%s / patterns=%s",
-                indexer.title,
-                len(titles),
-                len(kitsu_generated_tasks),
-                kitsu_unique_task_count,
-                kitsu_pattern_counts,
             )
 
         self.__execute_search_tasks(
@@ -796,120 +490,66 @@ class JackettService:
         policy = self._get_indexer_policy(indexer)
         idx_lang = policy['base_language']
         ser_id = str(series.id).lower().strip()
-
-        is_kitsu_id = self._is_kitsu_id(ser_id)
-        is_50bt_69bt = policy['is_50bt_69bt']
-
-        if self._should_skip_kitsu_indexer(policy, is_kitsu_id):
-            self.logger.info(
-                f"🚫 [SKIP] {indexer.title} ({policy['id']}) skipped. "
-                f"Reason: Korean Indexer + Kitsu ID ({ser_id})"
-            )
-            return
+        has_imdb_search_capability = (
+            os.getenv(self.DISABLE_IMDB_SEARCH_ENV) != self.IMDB_DISABLED_VALUE
+            and re.fullmatch(r'tt\d+', ser_id.split(':', 1)[0]) is not None
+            and self.IMDB_ID_PARAM in (indexer.tv_search_capatabilities or [])
+        )
+        english_index = next((
+            i for i, lang in enumerate(series.languages)
+            if str(lang).lower().split('-')[0] == 'en'
+            and i < len(series.titles) and series.titles[i]
+        ), None)
+        imdb_only = has_imdb_search_capability and english_index is None
 
         season = f"{int(series.season.replace('S', '')):02d}"
         episode = f"{int(series.episode.replace('E', '')):02d}"
 
-        if is_kitsu_id:
-            languages = series.languages * len(series.titles)
-            titles = [title for title in series.titles for _ in series.languages]
-            has_imdb_search_capability = False
+        if imdb_only:
+            languages, titles = [], []
+        elif policy['search_all_languages']:
+            languages, titles = series.languages, series.titles
+        elif has_imdb_search_capability:
+            languages = [series.languages[english_index]]
+            titles = [series.titles[english_index]]
+        elif idx_lang == self.LANGUAGE_KOREAN:
+            indices = [
+                i for i, title in enumerate(series.titles)
+                if series.languages[i] == self.LANGUAGE_KOREAN
+                or self.LANGUAGE_KOREAN in detect_languages(title)
+            ]
+            if not indices:
+                indices = [0]
+            languages = [self.LANGUAGE_KOREAN for _ in indices]
+            titles = [series.titles[i] for i in indices]
         else:
-            has_imdb_search_capability = (
-                os.getenv(self.DISABLE_IMDB_SEARCH_ENV) != self.IMDB_DISABLED_VALUE
-                and indexer.tv_search_capatabilities is not None
-                and self.IMDB_ID_PARAM in indexer.tv_search_capatabilities
-            )
-
-            if policy['search_all_languages']:
-                languages = series.languages
-                titles = series.titles
-            elif has_imdb_search_capability:
-                languages = [self.LANGUAGE_ENGLISH]
-                index_of_language = next(
-                    (
-                        i
-                        for i, lang in enumerate(series.languages)
-                        if lang == self.LANGUAGE_ENGLISH
-                    ),
-                    0,
-                )
-                titles = [series.titles[index_of_language]]
-            elif idx_lang == self.LANGUAGE_KOREAN:
-                index_of_language = []
-                for i, title in enumerate(series.titles):
-                    if (
-                        series.languages[i] == self.LANGUAGE_KOREAN
-                        or self.LANGUAGE_KOREAN in detect_languages(title)
-                    ):
-                        index_of_language.append(i)
-                if not index_of_language:
-                    index_of_language = [0]
-                languages = [self.LANGUAGE_KOREAN for _ in index_of_language]
-                titles = [series.titles[i] for i in index_of_language]
-            else:
-                index_of_language = [
-                    i
-                    for i, lang in enumerate(series.languages)
-                    if lang == indexer.language or lang == self.LANGUAGE_ENGLISH
-                ]
-                if not index_of_language:
-                    index_of_language = [0]
-                languages = [series.languages[i] for i in index_of_language]
-                titles = [series.titles[i] for i in index_of_language]
+            indices = [
+                i for i, lang in enumerate(series.languages)
+                if lang == indexer.language or lang == self.LANGUAGE_ENGLISH
+            ]
+            if not indices:
+                indices = [0]
+            languages = [series.languages[i] for i in indices]
+            titles = [series.titles[i] for i in indices]
 
         titles = [re.sub(r'\s+', ' ', title).strip() for title in titles]
 
         def search_pattern(params_dict, pattern_name):
-            kitsu_task_start = time.perf_counter()
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
                 response = self.__session.get(
-                    url,
-                    params=params_dict,
-                    timeout=self.HTTP_TIMEOUT,
+                    url, params=params_dict, timeout=self.HTTP_TIMEOUT,
                 )
-                self.logger.debug(
-                    f"[Jackett][Series][{pattern_name}] URL: {response.request.url}"
-                )
+                self.logger.debug(f"[Jackett][Series][{pattern_name}] URL: {response.request.url}")
                 response.raise_for_status()
-                task_results = self.__get_torrent_links_from_xml(
-                    response.text
-                )
-
-                if is_kitsu_id:
-                    self.logger.info(
-                        "[PERF][KITSU-SEARCH] task: "
-                        "media=series / indexer=%s / "
-                        "pattern=%s / elapsed=%.3fs / "
-                        "results=%s",
-                        indexer.title,
-                        pattern_name,
-                        time.perf_counter() - kitsu_task_start,
-                        len(task_results),
-                    )
-
-                return task_results
+                return self.__get_torrent_links_from_xml(response.text)
             except Exception as e:
-                if is_kitsu_id:
-                    self.logger.info(
-                        "[PERF][KITSU-SEARCH] task: "
-                        "media=series / indexer=%s / "
-                        "pattern=%s / elapsed=%.3fs / "
-                        "FAILED",
-                        indexer.title,
-                        pattern_name,
-                        time.perf_counter() - kitsu_task_start,
-                    )
-
-                self.logger.error(
-                    f"Series search [{pattern_name}] failed for {indexer.title}: {str(e)}"
-                )
+                self.logger.error(f"Series search [{pattern_name}] failed for {indexer.title}: {e}")
                 return []
 
         def create_params(base_params, title, suffix):
             params = base_params.copy()
-            params['q'] = self._build_query_string(title, suffix, is_50bt_69bt)
+            params['q'] = f'{title} {suffix}'.strip()
             return params
 
         tv_search_capabilities = set(
@@ -958,6 +598,22 @@ class JackettService:
                 suffix,
             )
 
+        if imdb_only:
+            params = {
+                'apikey': self.__api_key,
+                't': self.TORZNAB_SERIES_SEARCH_TYPE,
+                'cat': self.TORZNAB_SERIES_CATEGORY,
+                self.IMDB_ID_PARAM: ser_id.split(':', 1)[0],
+            }
+            if supports_structured_episode_search:
+                params['season'] = int(season)
+                params['ep'] = int(episode)
+            self.__execute_search_tasks(
+                indexer, [(params, "IMDbOnly")], search_pattern,
+                results_queue, counter, count_lock, unique_seen_keys, seen_lock,
+            )
+            return
+
         all_search_tasks = []
         for index, lang in enumerate(languages):
             base_params = {
@@ -965,32 +621,12 @@ class JackettService:
                 't': self.TORZNAB_SERIES_SEARCH_TYPE,
                 'cat': self.TORZNAB_SERIES_CATEGORY,
             }
-            if has_imdb_search_capability and not is_kitsu_id:
+            if has_imdb_search_capability:
                 base_params[self.IMDB_ID_PARAM] = ser_id.split(':', 1)[0]
 
             params_title_only = create_params(base_params, titles[index], '')
 
-            is_kitsu_part_series = False
-            if is_kitsu_id:
-                if (
-                    self.KITSU_PART_PATTERN_EN.search(titles[index])
-                    or self.KITSU_PART_PATTERN_JP.search(titles[index])
-                ):
-                    is_kitsu_part_series = True
-
-            if policy['series_title_only']:
-                all_search_tasks.append((params_title_only, f"TitleOnly-{lang}"))
-                continue
-
-            if is_kitsu_part_series:
-
-                params_episode = create_params(
-                    base_params,
-                    titles[index],
-                    f"E{episode}",
-                )
-                all_search_tasks.append((params_episode, f"Episode-{lang}"))
-            elif lang == self.LANGUAGE_KOREAN:
+            if lang == self.LANGUAGE_KOREAN:
                 if int(season) >= 2:
                     params_episode = create_episode_params(
                         base_params,
@@ -1030,8 +666,7 @@ class JackettService:
                 all_search_tasks.append((params_episode, f"Episode-{lang}"))
 
             if (
-                not is_kitsu_part_series
-                and int(season) >= 2
+                int(season) >= 2
                 and hasattr(series, 'total_episodes')
                 and series.total_episodes
             ):
@@ -1046,76 +681,18 @@ class JackettService:
                 )
                 all_search_tasks.append((params_total, f"TotalEpisodes-{lang}"))
 
-            if not is_kitsu_part_series:
-                if int(season) >= 2 or lang != self.LANGUAGE_KOREAN:
-                    if lang == self.LANGUAGE_KOREAN:
-                        season_suffix = f"{int(season)}"
-                    else:
-                        season_suffix = f"S{season}"
-                    params_season = create_season_params(
-                        base_params,
-                        titles[index],
-                        season_suffix,
-                    )
-                    all_search_tasks.append((params_season, f"Season-{lang}"))
+            if int(season) >= 2 or lang != self.LANGUAGE_KOREAN:
+                season_suffix = f"{int(season)}" if lang == self.LANGUAGE_KOREAN else f"S{season}"
+                params_season = create_season_params(
+                    base_params, titles[index], season_suffix,
+                )
+                all_search_tasks.append((params_season, f"Season-{lang}"))
 
             all_search_tasks.append((params_title_only, f"Title-{lang}"))
 
         if not all_search_tasks:
             self.logger.warning(f"No search tasks for {indexer.title}. Skipping.")
             return
-
-        if is_kitsu_id:
-            kitsu_seen_params = set()
-            kitsu_pattern_counts = {}
-            kitsu_unique_task_count = 0
-
-            for task in all_search_tasks:
-                params_dict = task[0]
-                task_pattern_name = task[1]
-
-                params_key = tuple(
-                    sorted(
-                        (key, str(value))
-                        for key, value
-                        in params_dict.items()
-                    )
-                )
-
-                if params_key in kitsu_seen_params:
-                    continue
-
-                kitsu_seen_params.add(params_key)
-                kitsu_unique_task_count += 1
-
-                pattern_group = (
-                    task_pattern_name.rsplit(
-                        "-",
-                        1,
-                    )[0]
-                )
-
-                kitsu_pattern_counts[
-                    pattern_group
-                ] = (
-                    kitsu_pattern_counts.get(
-                        pattern_group,
-                        0,
-                    )
-                    + 1
-                )
-
-            self.logger.info(
-                "[PERF][KITSU-SEARCH] plan: "
-                "media=series / indexer=%s / "
-                "aliases=%s / tasks_raw=%s / "
-                "tasks_unique=%s / patterns=%s",
-                indexer.title,
-                len(titles),
-                len(all_search_tasks),
-                kitsu_unique_task_count,
-                kitsu_pattern_counts,
-            )
 
         self.__execute_search_tasks(
             indexer,

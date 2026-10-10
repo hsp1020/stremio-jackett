@@ -40,15 +40,17 @@ class TMDB(MetadataProvider):
 
                 if full_id: prefix = full_id[0]
 
-            if prefix == "trakt":
-                full_id = self.__convert_trakt_to_tmdb(full_id, media_type)
-                if full_id: prefix = full_id[0]
-
             if prefix == "kitsu":
-                result = self.__get_kitsu_metadata(id, full_id, media_type)
-            else:
+                full_id = self.__convert_kitsu_to_imdb(full_id, media_type)
+                if not full_id:
+                    return None
+                id = ":".join(full_id)
 
-                result = self.__get_tmdb_metadata(id, full_id, media_type)
+            if full_id[0] != "tmdb" and not re.fullmatch(r"tt\d+", full_id[0]):
+                self.logger.warning("Unsupported metadata ID: %s", id)
+                return None
+
+            result = self.__get_tmdb_metadata(id, full_id, media_type)
 
             self.logger.info(
                 f"[PERF][TMDB] get_metadata TOTAL: "
@@ -93,184 +95,40 @@ class TMDB(MetadataProvider):
             self.logger.error(f"[ID변환] TVDB 변환 실패: {str(e)}")
             return full_id
 
-    def __convert_trakt_to_tmdb(self, full_id, media_type):
-        """Trakt ID를 TMDB ID로 변환"""
-        trakt_id = full_id[1]
-        self.logger.info(f"[ID변환] Trakt({trakt_id}) -> TMDB 변환 시도")
-
+    def __convert_kitsu_to_imdb(self, full_id, media_type):
         try:
-            headers = {
-                "Content-Type": "application/json",
-                "trakt-api-version": "2",
-                "trakt-api-key": "4d42daf7ebfb145686602a1a8158f7c0d771e1157513e2a8e3dd8b14f55a23aa"
-            }
+            response = requests.get(
+                "https://aiostreamsfortheweebsstable.midnightignite.me/api/v1/anime",
+                params={"idType": "kitsuId", "idValue": full_id[1]},
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("success") is not True:
+                raise ValueError("Anime mapping lookup unsuccessful")
+            data = payload["data"]
+            imdb_id = data["mappings"].get("imdbId")
+            if not isinstance(imdb_id, str) or not re.fullmatch(r"tt\d+", imdb_id):
+                raise ValueError("IMDb ID mapping unavailable")
             if media_type == "movie":
-                trakt_url = f"https://api.trakt.tv/movies/{trakt_id}"
-            else:
-                trakt_url = f"https://api.trakt.tv/shows/{trakt_id}"
-
-            trakt_response = requests.get(trakt_url, headers=headers)
-            trakt_data = trakt_response.json()
-
-            tmdb_id = trakt_data.get('ids', {}).get('tmdb')
-            if not tmdb_id:
-                raise ValueError(f"Trakt 응답에서 TMDB ID를 찾을 수 없습니다. (ID: {trakt_id})")
-
-            self.logger.info(f"[ID변환] 성공: Trakt({trakt_id}) -> TMDB({tmdb_id})")
-
-            new_full_id = ["tmdb", str(tmdb_id)]
-            if len(full_id) >= 4:
-                new_full_id.append(full_id[3])
-                if len(full_id) >= 5:
-                    new_full_id.append(full_id[4])
-
-            return new_full_id
-
-        except Exception as e:
-            self.logger.error(f"[ID변환] Trakt 변환 실패: {str(e)}", exc_info=True)
-            raise
-
-    def __get_kitsu_metadata(self, original_id, full_id, media_type):
-        """Kitsu 애니메이션 메타데이터 처리"""
-        self.logger.info(f"[Kitsu] 메타데이터 처리 시작: {original_id}")
-        kitsu_total_start = time.perf_counter()
-        try:
-            kitsu_id = full_id[1]
-            kitsu_url = f"https://kitsu.io/api/edge/anime/{kitsu_id}"
-            kitsu_api_start = time.perf_counter()
-            kitsu_response = requests.get(kitsu_url)
-            kitsu_data = kitsu_response.json()
-
-            self.logger.info(
-                "[PERF][KITSU] API: %.3fs / status=%s / id=%s",
-                time.perf_counter() - kitsu_api_start,
-                getattr(kitsu_response, "status_code", None),
-                kitsu_id,
-            )
-
-            kitsu_alias_start = time.perf_counter()
-            attributes = kitsu_data['data']['attributes']
-            titles = attributes.get('titles', {})
-            canonical_title = attributes.get('canonicalTitle')
-            slug = attributes.get('slug', '')
-            abbreviated_titles = attributes.get('abbreviatedTitles', [])
-            start_date = attributes.get('startDate')
-            year = start_date[:4] if start_date else None
-            languages = ['en']
-
-            season_matches_patterns_list = [
-                (r'\b(First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth)\s+(Season|시즌)\b',
-                    lambda m: {'First': 1, 'Second': 2, 'Third': 3, 'Fourth': 4, 'Fifth': 5,
-                            'Sixth': 6, 'Seventh': 7, 'Eighth': 8, 'Ninth': 9}[m.group(1)]),
-                (r'\b(\d+)(?:st|nd|rd|th)\s*(?:Season|시즌)\b', 1),
-                (r'[Ss]eason\s*(\d+)', 1),
-                (r'[Ss]\s*(\d+)', 1),
-                (r'[([]\s*[sS](\d+)\s*[)]]', 1),
-                (r'第\s*(\d+)\s*期', 1),
-            ]
-
-            skip_patterns_list = [
-                r'\s*(?:The\s+)?Final\s+Season\b',
-                r'\s*(?:The\s+)?Last\s+Season\b',
-                r'\s*最終章',
-                r'\s*完結篇',
-            ]
-
-            def detect_season_from_title(title: str) -> int | None:
-                if not title: return None
-                try:
-
-                    normalized = re.sub(r'\s+', ' ', title.replace('-', ' ')).strip()
-                    if any(re.search(pat, normalized, re.IGNORECASE) for pat in skip_patterns_list):
-                        return None
-                    for pattern, group in season_matches_patterns_list:
-                        match = re.search(pattern, normalized, re.IGNORECASE)
-                        if match:
-                            return int(match.group(group)) if isinstance(group, int) else group(match)
-                    return None
-                except: return None
-
-            season_number = 1
-            season_detected_titles = []
-            titles_to_scan = [titles.get('en'), titles.get('en_us'), canonical_title]
-            if abbreviated_titles: titles_to_scan.extend(abbreviated_titles)
-            titles_to_scan.append(slug.replace('-', ' ') if slug else None)
-
-            for title in titles_to_scan:
-                if not title: continue
-                season_candidate = detect_season_from_title(title)
-                if season_candidate is not None:
-                    if not season_detected_titles:
-                        season_number = season_candidate
-                    season_detected_titles.append(title)
-
-            def process_title(title_to_process, local_season_patterns, local_skip_patterns):
-                if not title_to_process: return None
-                try:
-                    normalized_title = title_to_process.replace('-', ' ').replace('.', ' ')
-
-                    normalized_for_search = re.sub(r'\s+', ' ', normalized_title).strip()
-
-                    for pat in [r'\s*OVA$', r'\s*ONA$', r'\s*OAV$']:
-                        normalized_for_search = re.sub(pat, '', normalized_for_search, flags=re.IGNORECASE)
-
-                    for skip_pat in local_skip_patterns:
-                        match = re.search(skip_pat, normalized_for_search, re.IGNORECASE)
-                        if match:
-                            return re.sub(r'\s{2,}', ' ', normalized_for_search[:match.start()]).strip()
-
-                    for pattern, group_info in local_season_patterns:
-                        match = re.search(pattern, normalized_for_search, re.IGNORECASE)
-                        if match:
-                            return re.sub(r'\s{2,}', ' ', normalized_for_search[:match.start()]).strip()
-
-                    return re.sub(r'\s{2,}', ' ', re.sub(r'\s+The$', '', normalized_for_search, flags=re.IGNORECASE)).strip()
-                except: return None
-
-            seen_titles = set()
-            collected_titles = []
-
-            def add_title(title):
-                if not title: return
-                cleaned = process_title(title, season_matches_patterns_list, skip_patterns_list)
-                if not cleaned: return
-                final_title = self.replace_weird_characters(cleaned)
-
-                compare_key = re.sub(r'\s+', ' ', final_title.lower()).strip()
-                self.logger.debug(f"[v1.1 Kitsu] 원본: '{title}', 처리후: '{final_title}'")
-
-                if compare_key not in seen_titles:
-                    seen_titles.add(compare_key)
-                    collected_titles.append(final_title)
-
-            add_title(titles.get('en_us') or titles.get('en'))
-            add_title(canonical_title)
-            if abbreviated_titles: add_title(abbreviated_titles[0])
-            add_title(slug.replace('-', ' ') if slug else None)
-            for st in season_detected_titles: add_title(st)
-
-            self.logger.info(
-                "[PERF][KITSU] aliases: count=%s / build=%.3fs / titles=%s",
-                len(collected_titles),
-                time.perf_counter() - kitsu_alias_start,
-                collected_titles,
-            )
-
-            self.logger.info(
-                "[PERF][KITSU] metadata TOTAL: %.3fs / id=%s",
-                time.perf_counter() - kitsu_total_start,
-                kitsu_id,
-            )
-
-            if media_type == "movie":
-                return Movie(id=original_id, titles=collected_titles, year=year, languages=languages)
-            else:
-                episode = f"E{int(full_id[2]):02d}" if len(full_id) > 2 else "E01"
-                return Series(id=original_id, titles=collected_titles, year=year, season=f"S{season_number:02d}", episode=episode, languages=languages)
-
-        except Exception as e:
-            self.logger.error(f"[Kitsu] 처리 실패: {str(e)}", exc_info=True)
-            raise
+                return [imdb_id]
+            if len(full_id) != 3:
+                raise ValueError("Kitsu series request requires an episode number")
+            episode = int(full_id[2])
+            if episode < 1:
+                raise ValueError("Invalid Kitsu episode number")
+            imdb = data.get("imdb") or {}
+            tvdb = data.get("tvdb") or {}
+            season = imdb.get("seasonNumber")
+            if not isinstance(season, int) or isinstance(season, bool):
+                season = tvdb.get("seasonNumber")
+            if not isinstance(season, int) or isinstance(season, bool) or season < 0:
+                raise ValueError("IMDb/TVDB season mapping unavailable")
+            self.logger.info("[ID변환] Kitsu(%s) -> IMDb(%s:%s:%s)", full_id[1], imdb_id, season, episode)
+            return [imdb_id, str(season), str(episode)]
+        except (requests.RequestException, ValueError, KeyError, TypeError, IndexError) as exc:
+            self.logger.warning("[ID변환] Kitsu -> IMDb 변환 실패: %s", exc)
+            return None
 
     def __get_tmdb_metadata(self, original_id, full_id, media_type):
         """TMDB/IMDB 표준 메타데이터 조회 (중국어 별칭 처리 포함)"""

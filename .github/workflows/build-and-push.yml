@@ -44,6 +44,8 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:38680/configure |
             grep -qi '</html>'
           curl --fail --silent --show-error http://127.0.0.1:38680/static/config.js -o /dev/null
+          docker cp deployment/test-routing.py stremio-jackett-ci-smoke:/tmp/test-routing.py
+          docker exec stremio-jackett-ci-smoke python /tmp/test-routing.py
       - name: Enable QEMU emulation
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx
