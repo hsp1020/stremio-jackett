@@ -576,7 +576,9 @@ class TorrentService:
                 if length < 50 * 1024 * 1024:
                     continue
 
-                if not season_episode_in_filename(file, target_season, target_episode):
+                if not season_episode_in_filename(
+                    file, f"S{int(target_season):02d}", f"E{int(target_episode):02d}"
+                ):
                     continue
 
                 try:
