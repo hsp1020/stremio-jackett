@@ -452,8 +452,9 @@ class TorrentService:
         )
 
         if "files" not in metadata["info"]:
-            result.file_index = 1  # Preserve Debrid's existing 1-based ID.
-            result.direct_file_index = 0  # Stremio uses a zero-based position.
+            result.direct_file_index = 0
+            result.file_name = metadata["info"].get("name")
+            # A torrent position is not a provider-issued Debrid file ID.
             return result
 
         result.files = metadata["info"]["files"]
@@ -467,21 +468,19 @@ class TorrentService:
                 episodes = result.parsed_data.episodes
             file_details = self.__find_episode_file(result.files, seasons, episodes)
             if file_details is not None:
-                result.file_index = file_details["file_index"]
-                result.direct_file_index = result.file_index - 1
+                result.direct_file_index = file_details["file_index"] - 1
                 result.file_name = file_details["title"]
                 result.size = file_details["size"]
-            else:
-                # Let Debrid resolve by requested episode; do not direct-play
-                # the first unrelated file in a known season pack.
-                result.file_index = None
-                result.direct_file_missing = True
+            # Unknown file index: preserve the P2P stream without fileIdx.
+            # Debrid will resolve this episode using its actual files.
         else:
-            result.file_index = self.__find_movie_file(result.files)
-            if result.file_index is not None:
-                result.direct_file_index = result.file_index - 1
-            else:
-                result.direct_file_missing = True
+            movie_index = self.__find_movie_file(result.files)
+            if movie_index is not None:
+                result.direct_file_index = movie_index - 1
+                result.file_name = result.files[movie_index - 1]["path"][-1]
+
+        # file_index is intentionally left None for .torrent-derived files.
+        # Only a Debrid availability result may supply an actual Debrid ID.
 
         return result
 
