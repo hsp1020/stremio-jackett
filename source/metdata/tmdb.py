@@ -95,40 +95,74 @@ class TMDB(MetadataProvider):
             self.logger.error(f"[ID변환] TVDB 변환 실패: {str(e)}")
             return full_id
 
+    ANIME_MAPPING_HOSTS = (
+        "aiostreamsfortheweebsstable.midnightignite.me",
+        "aiostreams.elfhosted.com",
+        "aiostreams.fortheweak.cloud",
+        "aio.atbphosting.com",
+        "aiostreams.stremio.ru",
+        "aiostreams.viren070.me",
+    )
+
     def __convert_kitsu_to_imdb(self, full_id, media_type):
-        try:
-            response = requests.get(
-                "https://aiostreamsfortheweebsstable.midnightignite.me/api/v1/anime",
-                params={"idType": "kitsuId", "idValue": full_id[1]},
-                timeout=10,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if payload.get("success") is not True:
-                raise ValueError("Anime mapping lookup unsuccessful")
-            data = payload["data"]
-            imdb_id = data["mappings"].get("imdbId")
-            if not isinstance(imdb_id, str) or not re.fullmatch(r"tt\d+", imdb_id):
-                raise ValueError("IMDb ID mapping unavailable")
-            if media_type == "movie":
-                return [imdb_id]
-            if len(full_id) != 3:
-                raise ValueError("Kitsu series request requires an episode number")
-            episode = int(full_id[2])
-            if episode < 1:
-                raise ValueError("Invalid Kitsu episode number")
-            imdb = data.get("imdb") or {}
-            tvdb = data.get("tvdb") or {}
-            season = imdb.get("seasonNumber")
-            if not isinstance(season, int) or isinstance(season, bool):
-                season = tvdb.get("seasonNumber")
-            if not isinstance(season, int) or isinstance(season, bool) or season < 0:
-                raise ValueError("IMDb/TVDB season mapping unavailable")
-            self.logger.info("[ID변환] Kitsu(%s) -> IMDb(%s:%s:%s)", full_id[1], imdb_id, season, episode)
-            return [imdb_id, str(season), str(episode)]
-        except (requests.RequestException, ValueError, KeyError, TypeError, IndexError) as exc:
-            self.logger.warning("[ID변환] Kitsu -> IMDb 변환 실패: %s", exc)
+        if len(full_id) < 2 or not full_id[1].isdigit() or int(full_id[1]) <= 0:
             return None
+        if media_type == "movie":
+            if len(full_id) != 2:
+                return None
+            episode = None
+        elif media_type == "series":
+            if len(full_id) != 3 or not full_id[2].isdigit() or int(full_id[2]) < 1:
+                return None
+            episode = full_id[2]
+        else:
+            return None
+
+        kitsu_id = int(full_id[1])
+        mapping_deadline = time.monotonic() + 12
+        for host in self.ANIME_MAPPING_HOSTS:
+            remaining = mapping_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                response = requests.get(
+                    f"https://{host}/api/v1/anime",
+                    params={"idType": "kitsuId", "idValue": kitsu_id},
+                    timeout=(min(1.5, remaining), min(2.5, remaining)),
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("success") is not True:
+                    continue
+                data = payload.get("data") or {}
+                ids = data.get("mappings") or {}
+                if str(ids.get("kitsuId")) != str(kitsu_id):
+                    continue
+                imdb_id = ids.get("imdbId")
+                if not isinstance(imdb_id, str) or not re.fullmatch(r"tt\d+", imdb_id):
+                    continue
+                if media_type == "movie":
+                    self.logger.info("[ID변환] Kitsu(%s) -> IMDb(%s)", kitsu_id, imdb_id)
+                    return [imdb_id]
+
+                def valid_season(value):
+                    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+                imdb_season = (data.get("imdb") or {}).get("seasonNumber")
+                tvdb_season = (data.get("tvdb") or {}).get("seasonNumber")
+                season = imdb_season if valid_season(imdb_season) else tvdb_season
+                if not valid_season(season):
+                    continue
+                self.logger.info(
+                    "[ID변환] Kitsu(%s) -> IMDb(%s:%s:%s) via %s",
+                    kitsu_id, imdb_id, season, episode, host,
+                )
+                return [imdb_id, str(season), episode]
+            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as exc:
+                self.logger.debug("[ID변환] Anime mapping host %s failed: %s", host, exc)
+
+        self.logger.warning("[ID변환] Kitsu(%s) -> IMDb mapping unavailable", kitsu_id)
+        return None
 
     def __get_tmdb_metadata(self, original_id, full_id, media_type):
         """TMDB/IMDB 표준 메타데이터 조회 (중국어 별칭 처리 포함)"""

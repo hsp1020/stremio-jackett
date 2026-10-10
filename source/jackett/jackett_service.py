@@ -359,12 +359,24 @@ class JackettService:
             and re.fullmatch(r'tt\d+', mov_id) is not None
             and self.IMDB_ID_PARAM in (indexer.movie_search_capatabilities or [])
         )
+        movie_caps = set(indexer.movie_search_capatabilities or [])
+        movie_search_supported = indexer.movie_search_capatabilities is not None
+        supports_query = 'q' in movie_caps
+        if movie_search_supported and (supports_query or has_imdb_search_capability):
+            search_mode = self.TORZNAB_MOVIE_SEARCH_TYPE
+        elif indexer.search_available:
+            search_mode = 'search'
+            has_imdb_search_capability = False
+        else:
+            self.logger.info("Indexer %s has no supported movie or general search", indexer.title)
+            return
+
         english_index = next((
             i for i, lang in enumerate(movie.languages)
             if str(lang).lower().split('-')[0] == 'en'
             and i < len(movie.titles) and movie.titles[i]
         ), None)
-        imdb_only = has_imdb_search_capability and english_index is None
+        imdb_only = has_imdb_search_capability and (english_index is None or not supports_query)
 
         if imdb_only:
             languages, titles = [], []
@@ -411,7 +423,7 @@ class JackettService:
         if imdb_only:
             params = {
                 'apikey': self.__api_key,
-                't': self.TORZNAB_MOVIE_SEARCH_TYPE,
+                't': search_mode,
                 'cat': self.TORZNAB_MOVIE_CATEGORY,
                 self.IMDB_ID_PARAM: mov_id,
             }
@@ -426,11 +438,12 @@ class JackettService:
             query_value = titles[index]
             params = {
                 'apikey': self.__api_key,
-                't': self.TORZNAB_MOVIE_SEARCH_TYPE,
+                't': search_mode,
                 'cat': self.TORZNAB_MOVIE_CATEGORY,
                 'q': query_value,
-                'year': movie.year,
             }
+            if search_mode == self.TORZNAB_MOVIE_SEARCH_TYPE and 'year' in movie_caps and movie.year:
+                params['year'] = movie.year
             if has_imdb_search_capability:
                 params[self.IMDB_ID_PARAM] = mov_id
             phase1_tasks.append((params, f"WithYear-{lang}"))
@@ -441,11 +454,11 @@ class JackettService:
                 lang == self.LANGUAGE_KOREAN
                 or self.LANGUAGE_KOREAN in detect_languages(titles[index])
             )
-            if is_korean_search:
+            if is_korean_search and search_mode == self.TORZNAB_MOVIE_SEARCH_TYPE and 'year' in movie_caps and movie.year:
                 query_value = titles[index]
                 params_no_year = {
                     'apikey': self.__api_key,
-                    't': self.TORZNAB_MOVIE_SEARCH_TYPE,
+                    't': search_mode,
                     'cat': self.TORZNAB_MOVIE_CATEGORY,
                     'q': query_value,
                 }
@@ -495,12 +508,24 @@ class JackettService:
             and re.fullmatch(r'tt\d+', ser_id.split(':', 1)[0]) is not None
             and self.IMDB_ID_PARAM in (indexer.tv_search_capatabilities or [])
         )
+        tv_caps = set(indexer.tv_search_capatabilities or [])
+        tv_search_supported = indexer.tv_search_capatabilities is not None
+        supports_query = 'q' in tv_caps
+        if tv_search_supported and (supports_query or has_imdb_search_capability):
+            search_mode = self.TORZNAB_SERIES_SEARCH_TYPE
+        elif indexer.search_available:
+            search_mode = 'search'
+            has_imdb_search_capability = False
+        else:
+            self.logger.info("Indexer %s has no supported TV or general search", indexer.title)
+            return
+
         english_index = next((
             i for i, lang in enumerate(series.languages)
             if str(lang).lower().split('-')[0] == 'en'
             and i < len(series.titles) and series.titles[i]
         ), None)
-        imdb_only = has_imdb_search_capability and english_index is None
+        imdb_only = has_imdb_search_capability and (english_index is None or not supports_query)
 
         season = f"{int(series.season.replace('S', '')):02d}"
         episode = f"{int(series.episode.replace('E', '')):02d}"
@@ -554,7 +579,7 @@ class JackettService:
 
         tv_search_capabilities = set(
             indexer.tv_search_capatabilities or []
-        )
+        ) if search_mode == self.TORZNAB_SERIES_SEARCH_TYPE else set()
 
         supports_structured_episode_search = {
             'season',
@@ -601,7 +626,7 @@ class JackettService:
         if imdb_only:
             params = {
                 'apikey': self.__api_key,
-                't': self.TORZNAB_SERIES_SEARCH_TYPE,
+                't': search_mode,
                 'cat': self.TORZNAB_SERIES_CATEGORY,
                 self.IMDB_ID_PARAM: ser_id.split(':', 1)[0],
             }
@@ -618,7 +643,7 @@ class JackettService:
         for index, lang in enumerate(languages):
             base_params = {
                 'apikey': self.__api_key,
-                't': self.TORZNAB_SERIES_SEARCH_TYPE,
+                't': search_mode,
                 'cat': self.TORZNAB_SERIES_CATEGORY,
             }
             if has_imdb_search_capability:
@@ -743,6 +768,7 @@ class JackettService:
             indexer.link = item.find('link').text
             indexer.type = item.find('type').text
             raw_language = item.find('language').text
+            indexer.search_available = item.find('.//searching/search[@available="yes"]') is not None
             base_language = raw_language.split('-')[0]
             if base_language in self.PRESERVE_FULL_INDEXER_LOCALES:
                 indexer.language = raw_language
@@ -757,16 +783,20 @@ class JackettService:
             tv_search = item.find('.//searching/tv-search[@available="yes"]')
 
             if movie_search is not None:
-                indexer.movie_search_capatabilities = movie_search.attrib[
-                    'supportedParams'
-                ].split(',')
+                indexer.movie_search_capatabilities = [
+                    part.strip().lower()
+                    for part in movie_search.attrib.get('supportedParams', '').split(',')
+                    if part.strip()
+                ]
             else:
                 self.logger.info(f"Movie search not available for {indexer.title}")
 
             if tv_search is not None:
-                indexer.tv_search_capatabilities = tv_search.attrib[
-                    'supportedParams'
-                ].split(',')
+                indexer.tv_search_capatabilities = [
+                    part.strip().lower()
+                    for part in tv_search.attrib.get('supportedParams', '').split(',')
+                    if part.strip()
+                ]
             else:
                 self.logger.info(f"TV search not available for {indexer.title}")
 

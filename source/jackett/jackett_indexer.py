@@ -7,3 +7,4 @@ class JackettIndexer:
         self.language = None
         self.tv_search_capatabilities = None
         self.movie_search_capatabilities = None
+        self.search_available = False
