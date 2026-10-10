@@ -27,7 +27,6 @@ class TorrentItem:
         self.trackers = []  # Trackers of the torrent
         self.file_index = None  # Debrid file identifier (provider-specific).
         self.direct_file_index = None  # Zero-based index from the .torrent file list, for Stremio only.
-        self.direct_file_missing = False  # Known .torrent pack does not contain the requested video.
 
         self.availability = False  # If it's instantly available on the debrid service
 
@@ -38,6 +37,7 @@ class TorrentItem:
             "magnet": self.magnet,
             "type": self.type,
             "file_index": self.file_index,
+            "file_name": self.file_name,
             "season": media.season if isinstance(media, Series) else None,
             "episode": media.episode if isinstance(media, Series) else None,
             "torrent_download": quote(self.torrent_download) if self.torrent_download is not None else None
