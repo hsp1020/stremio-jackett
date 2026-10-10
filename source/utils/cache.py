@@ -14,15 +14,18 @@ def search_cache(media):
     logger.info("Searching for cached " + media.type + " results")
     url = CACHER_URL + "getResult/" + media.type + "/"
 
-    cache_search = media.__dict__
+    cache_search = media.__dict__.copy()
     cache_search['title'] = cache_search['titles'][0]
     cache_search['language'] = cache_search['languages'][0]
 
-    response = requests.get(url, json=cache_search)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return []
+    try:
+        response = requests.get(url, json=cache_search, timeout=(3, 8))
+        if response.status_code == 200:
+            data = response.json()
+            return data if isinstance(data, list) else []
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        logger.warning('Cache lookup failed: %s', type(exc).__name__)
+    return []
 
 def cache_results(torrents: List[TorrentItem], media):
     if os.getenv("NODE_ENV") == "development":
@@ -67,7 +70,7 @@ def cache_results(torrents: List[TorrentItem], media):
     try:
         url = f"{CACHER_URL}pushResult/{media.type}"
         cache_data = json.dumps(cache_items, indent=4)
-        response = requests.post(url, data=cache_data)
+        response = requests.post(url, data=cache_data, timeout=(3, 12))
         response.raise_for_status()
 
         if response.status_code == 200:
