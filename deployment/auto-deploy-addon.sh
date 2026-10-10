@@ -56,8 +56,8 @@ latest_commit() {
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     git clone --depth 1 --branch main "$REPO_URL" "$REPO_DIR" >&2
   fi
-  git -C "$REPO_DIR" fetch -q --depth 1 origin main
-  git -C "$REPO_DIR" rev-parse FETCH_HEAD
+  git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" fetch -q --depth 1 origin main
+  git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" rev-parse FETCH_HEAD
 }
 ci_success() {
   local sha="$1" result
@@ -105,7 +105,7 @@ deploy() {
   image="${IMAGE_PREFIX}:${sha}"
   candidate="stremio-jackett-canary-$$"
   log "Building candidate ${image} (no change to current addon)"
-  git -C "$REPO_DIR" checkout --force --detach "$sha" >/dev/null
+  git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" checkout --force --detach "$sha" >/dev/null
   docker build --pull -t "$image" -f "$REPO_DIR/source/Dockerfile" "$REPO_DIR/source"
   log "Starting isolated Docker canary"
   docker run -d --rm --name "$candidate" "$image" >/dev/null
