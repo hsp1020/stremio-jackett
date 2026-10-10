@@ -27,6 +27,23 @@ jobs:
               compile(file.read_bytes(), str(file), "exec")
           print("All Python files compile")
           PYCODE
+      - name: Smoke-test Docker manifest, configuration page and static assets
+        run: |
+          set -Eeuo pipefail
+          docker build -t stremio-jackett-ci-smoke -f ./source/Dockerfile ./source
+          docker run -d --rm --name stremio-jackett-ci-smoke -p 127.0.0.1:38680:3000 stremio-jackett-ci-smoke
+          trap 'docker rm -f stremio-jackett-ci-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..15}; do
+            if curl --fail --silent --max-time 3 http://127.0.0.1:38680/manifest.json -o /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:38680/manifest.json |
+            python3 -c 'import json,sys; assert "stream" in json.load(sys.stdin).get("resources",[])'
+          curl --fail --silent --show-error http://127.0.0.1:38680/configure |
+            grep -qi '</html>'
+          curl --fail --silent --show-error http://127.0.0.1:38680/static/config.js -o /dev/null
       - name: Enable QEMU emulation
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx

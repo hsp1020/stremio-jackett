@@ -93,7 +93,16 @@ PY
 container_ok() {
   local name="$1" n
   for n in 1 2 3 4 5 6 7 8 9 10; do
-    if docker exec "$name" python -c 'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:3000/manifest.json",timeout=3)); assert "stream" in d.get("resources",[])' >/dev/null 2>&1; then
+    if docker exec "$name" python -c '
+import json, urllib.request
+base = "http://127.0.0.1:3000"
+with urllib.request.urlopen(base + "/manifest.json", timeout=3) as response:
+    assert "stream" in json.load(response).get("resources", [])
+with urllib.request.urlopen(base + "/configure", timeout=3) as response:
+    assert b"</html>" in response.read().lower(), "Configuration HTML missing"
+with urllib.request.urlopen(base + "/static/config.js", timeout=3) as response:
+    assert response.status == 200
+' >/dev/null 2>&1; then
       return 0
     fi
     sleep 3
@@ -103,7 +112,9 @@ container_ok() {
 https_ok() {
   local n
   for n in 1 2 3 4 5 6; do
-    if curl --fail --silent --show-error --max-time 10 'https://hsp99.duckdns.org/manifest.json' | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "stream" in d.get("resources",[])' >/dev/null 2>&1; then
+    if curl --fail --silent --show-error --max-time 10 'https://hsp99.duckdns.org/manifest.json' | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "stream" in d.get("resources",[])' >/dev/null 2>&1 \
+      && curl --fail --silent --show-error --max-time 10 -o /dev/null 'https://hsp99.duckdns.org/configure' \
+      && curl --fail --silent --show-error --max-time 10 -o /dev/null 'https://hsp99.duckdns.org/static/config.js'; then
       return 0
     fi
     sleep 4

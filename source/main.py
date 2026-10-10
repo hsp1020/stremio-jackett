@@ -92,8 +92,9 @@ async def root():
 @app.get("/{config}/configure")
 async def configure(request: Request):
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {"request": request, "isCommunityVersion": COMMUNITY_VERSION, "sponsorMessage": SPONSOR_MESSAGE, "version": VERSION}
+        {"isCommunityVersion": COMMUNITY_VERSION, "sponsorMessage": SPONSOR_MESSAGE, "version": VERSION}
     )
 
 
