@@ -29,6 +29,10 @@ compose() {
 assert_current_stack() {
   [[ -f "$COMPOSE_FILE" ]] || { log "ERROR: Missing original Compose file: $COMPOSE_FILE"; return 1; }
   docker inspect "$SERVICE" >/dev/null || { log "ERROR: Running addon container not found"; return 1; }
+  if docker exec "$SERVICE" test -f /app/.env; then
+    log "ERROR: /app/.env exists inside the container; migrate its values to the private Compose environment before deploying."
+    return 1
+  fi
   python3 - "$COMPOSE_FILE" "$SERVICE" <<'PY'
 import json, subprocess, sys
 name = sys.argv[2]
@@ -97,7 +101,7 @@ write_override() {
   mv "$temp" "$OVERRIDE_FILE"
 }
 deploy() {
-  local sha="$1" image candidate backupdir had_override=false
+  local sha="$1" image candidate backupdir previous_image had_override=false
   image="${IMAGE_PREFIX}:${sha}"
   candidate="stremio-jackett-canary-$$"
   log "Building candidate ${image} (no change to current addon)"
@@ -113,6 +117,7 @@ deploy() {
   docker rm -f "$candidate" >/dev/null 2>&1 || true
   log "Candidate OK; backing up current overlay and recreating addon only"
   backupdir="$(mktemp -d "$STATE_DIR/backup.XXXXXXXX")"
+  previous_image="$(docker inspect addon --format '{{.Config.Image}}')"
   if [[ -f "$OVERRIDE_FILE" ]]; then
     cp -p "$OVERRIDE_FILE" "$backupdir/override.yml"
     had_override=true
@@ -125,11 +130,8 @@ deploy() {
     return 0
   fi
   log "ERROR: New addon failed; rolling back original Compose image"
-  if [[ "$had_override" == true ]]; then
-    cp -p "$backupdir/override.yml" "$OVERRIDE_FILE"
-  else
-    rm -f "$OVERRIDE_FILE"
-  fi
+  # Pin the exact image that was running before the attempted deployment.
+  write_override "$previous_image"
   if compose up -d --no-deps --no-build --force-recreate addon && container_ok addon; then
     log "Rollback container restored"
   else
