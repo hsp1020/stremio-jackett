@@ -6,4 +6,5 @@ bencode.py
 jinja2
 aiocron
 python-dotenv
-rank-torrent-name >= 1.0.0
+rapidfuzz>=3.9,<4
+# RTN imports are supplied by pinned Rust torrent-parse-rank wheel in Dockerfile.
