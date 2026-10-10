@@ -6,7 +6,7 @@ from collections import Counter
 from typing import List, Optional
 from concurrent.futures import ProcessPoolExecutor
 
-from RTN import RTN, DefaultRanking, SettingsModel, sort_torrents, parse
+from RTN import parse
 
 try:
     from RTN import batch_parse
@@ -149,124 +149,36 @@ def sort_quality(item):
     return quality_order.get(parsed_data.resolution, float('inf')), False
 
 def items_sort(items, config):
-    total_start = time.perf_counter()
+    # Reuse RTN.parse output populated by filter_items; never rank every
+    # candidate again just to sort the final filtered list.
+    mode = config.get('sort')
 
-    sort_mode = config['sort']
+    def number(value):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
-    logger.info(
-        '[PERF] items_sort start: mode=%s / items=%s',
-        sort_mode,
-        len(items),
-    )
+    if mode == 'quality':
+        return sorted(items, key=sort_quality)
+    if mode == 'sizeasc':
+        return sorted(items, key=lambda item: number(item.size))
+    if mode == 'sizedesc':
+        return sorted(items, key=lambda item: number(item.size), reverse=True)
+    if mode == 'seedsdesc':
+        return sorted(items, key=lambda item: number(item.seeders), reverse=True)
+    if mode == 'qualitythensize':
+        return sorted(items, key=lambda item: (sort_quality(item), -number(item.size)))
 
-    rank_start = time.perf_counter()
-
-    settings = SettingsModel(
-        require=[],
-        exclude=config['exclusionKeywords'] + config['exclusion'],
-    )
-    rtn = RTN(
-        settings=settings,
-        ranking_model=DefaultRanking(),
-    )
-
-    torrents = [
-        rtn.rank(item.raw_title, item.info_hash)
-        for item in items
-    ]
-
-    rank_end = time.perf_counter()
-
-    logger.info(
-        '[PERF] items_sort RTN.rank: %.3fs / items=%s',
-        rank_end - rank_start,
-        len(items),
-    )
-
-    sort_torrents_start = time.perf_counter()
-
-    sorted_torrents = sort_torrents(
-        set(torrents)
-    )
-
-    sort_torrents_end = time.perf_counter()
-
-    logger.info(
-        '[PERF] items_sort sort_torrents: %.3fs',
-        sort_torrents_end - sort_torrents_start,
-    )
-
-    mapping_start = time.perf_counter()
-
-    first_by_hash = {}
-
-    for item in items:
-        first_by_hash.setdefault(
-            item.info_hash,
-            item,
-        )
-
-    for key, value in sorted_torrents.items():
-        item = first_by_hash.get(key)
-
-        if item is not None:
-            item.parsed_data = value
-
-    mapping_end = time.perf_counter()
-
-    logger.info(
-        '[PERF] items_sort mapping: %.3fs',
-        mapping_end - mapping_start,
-    )
-
-    final_sort_start = time.perf_counter()
-
-    if sort_mode == 'quality':
-        result = sorted(
-            items,
-            key=sort_quality,
-        )
-    elif sort_mode == 'sizeasc':
-        result = sorted(
-            items,
-            key=lambda x: int(x.size),
-        )
-    elif sort_mode == 'seedsdesc':
-        result = sorted(
-            items,
-            key=lambda x: int(x.seeders),
-            reverse=True,
-        )
-    elif sort_mode == 'sizedesc':
-        result = sorted(
-            items,
-            key=lambda x: int(x.size),
-            reverse=True,
-        )
-    elif sort_mode == 'qualitythensize':
-        result = sorted(
-            items,
-            key=lambda x: (
-                sort_quality(x),
-                -int(x.size),
-            ),
-        )
-    else:
-        result = items
-
-    final_sort_end = time.perf_counter()
-
-    logger.info(
-        '[PERF] items_sort final sort: %.3fs',
-        final_sort_end - final_sort_start,
-    )
-
-    logger.info(
-        '[PERF] items_sort TOTAL: %.3fs',
-        time.perf_counter() - total_start,
-    )
-
-    return result
+    # When no sort is selected, prefer healthy torrents before applying
+    # a per-resolution cap instead of arbitrarily using completion order.
+    try:
+        limit = int(config.get('resultsPerQuality') or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit > 0:
+        return sorted(items, key=lambda item: number(item.seeders), reverse=True)
+    return items
 
 def chinese_to_arabic(cn_str: str) -> Optional[int]:
     cn_nums = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
@@ -1447,6 +1359,8 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
     for filter_name, filter_instance in filters.items():
         try:
             perf_filter_stage_start = time.perf_counter()
+            if filter_name == 'resultsPerQuality' and filter_instance.can_filter():
+                items = sort_items(items, config)
             items = filter_instance(
                 items
             )
@@ -1474,4 +1388,4 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
     return items
 
 def sort_items(items, config):
-    return items_sort(items, config) if config['sort'] is not None else items
+    return items_sort(items, config)

@@ -1,6 +1,4 @@
 import json
-import queue
-import threading
 from typing import List
 
 from models.media import Media
@@ -43,7 +41,7 @@ def filter_by_direct_torrent(item):
     else:
         return 0
 
-def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrenting, debrid, results: queue.Queue, media: Media):
+def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrenting, debrid, results: list, media: Media):
     parsed_data = torrent_item.parsed_data
 
     size_in_gb = round(int(torrent_item.size) / 1024 / 1024 / 1024, 2)
@@ -74,7 +72,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
 
         queryb64 = encodeb64(json.dumps(torrent_item.to_debrid_stream_query(media))).replace('=', '%3D')
 
-        results.put({
+        results.append({
             "name": name,
             "description": title,
             "url": f"{host}/playback/{configb64}/{queryb64}",
@@ -90,7 +88,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
                 parsed_data.quality != "":
             name += f"({parsed_data.quality})"
 
-        results.put({
+        results.append({
             "name": name,
             "description": title,
             "infoHash": torrent_item.info_hash,
@@ -103,27 +101,19 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
 
 def parse_to_stremio_streams(torrent_items: List[TorrentItem], config, media):
     stream_list = []
-    threads = []
-    thread_results_queue = queue.Queue()
-
     configb64 = encodeb64(json.dumps(config).replace('=', '%3D'))
-
     debrid_enabled = config['debrid']
 
+    # Formatting is CPU-only and short: preserve the selected item order
+    # without starting one thread for every torrent.
     for torrent_item in torrent_items[:int(config['maxResults'])]:
-        thread = threading.Thread(target=parse_to_debrid_stream,
-
-                                  args=(torrent_item, configb64, config['addonHost'], config['torrenting'],
-                                        debrid_enabled, thread_results_queue, media),
-                                  daemon=True)
-        thread.start()
-        threads.append(thread)
-
-    for thread in threads:
-        thread.join()
-
-    while not thread_results_queue.empty():
-        stream_list.append(thread_results_queue.get())
+        try:
+            parse_to_debrid_stream(
+                torrent_item, configb64, config['addonHost'],
+                config['torrenting'], debrid_enabled, stream_list, media,
+            )
+        except Exception:
+            logger.exception('Failed to format torrent: %s', torrent_item.raw_title)
 
     if len(stream_list) == 0:
         return []

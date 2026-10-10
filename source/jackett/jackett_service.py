@@ -769,45 +769,53 @@ class JackettService:
         xml_root = ET.fromstring(xml_content)
         indexer_list = []
         for item in xml_root.findall('.//indexer'):
-            indexer = JackettIndexer()
-            indexer.title = item.find('title').text
-            indexer.id = item.attrib['id']
-            indexer.link = item.find('link').text
-            indexer.type = item.find('type').text
-            raw_language = item.find('language').text
-            indexer.search_available = item.find('.//searching/search[@available="yes"]') is not None
-            base_language = raw_language.split('-')[0]
-            if base_language in self.PRESERVE_FULL_INDEXER_LOCALES:
-                indexer.language = raw_language
-            else:
-                indexer.language = base_language
+            try:
+                indexer_id = (item.get('id') or '').strip()
+                raw_language = (item.findtext('language') or '').strip()
+                if not indexer_id or not raw_language:
+                    self.logger.warning("Skipping indexer with missing ID or language")
+                    continue
 
-            self.logger.info(
-                f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}"
-            )
+                indexer = JackettIndexer()
+                indexer.id = indexer_id
+                indexer.title = (item.findtext('title') or indexer_id).strip()
+                indexer.link = (item.findtext('link') or '').strip()
+                indexer.type = (item.findtext('type') or '').strip()
+                indexer.search_available = item.find('.//searching/search[@available="yes"]') is not None
+                base_language = raw_language.split('-')[0]
+                if base_language in self.PRESERVE_FULL_INDEXER_LOCALES:
+                    indexer.language = raw_language
+                else:
+                    indexer.language = base_language
 
-            movie_search = item.find('.//searching/movie-search[@available="yes"]')
-            tv_search = item.find('.//searching/tv-search[@available="yes"]')
+                self.logger.info(
+                    f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}"
+                )
 
-            if movie_search is not None:
-                indexer.movie_search_capatabilities = [
-                    part.strip().lower()
-                    for part in movie_search.attrib.get('supportedParams', '').split(',')
-                    if part.strip()
-                ]
-            else:
-                self.logger.info(f"Movie search not available for {indexer.title}")
+                movie_search = item.find('.//searching/movie-search[@available="yes"]')
+                tv_search = item.find('.//searching/tv-search[@available="yes"]')
 
-            if tv_search is not None:
-                indexer.tv_search_capatabilities = [
-                    part.strip().lower()
-                    for part in tv_search.attrib.get('supportedParams', '').split(',')
-                    if part.strip()
-                ]
-            else:
-                self.logger.info(f"TV search not available for {indexer.title}")
+                if movie_search is not None:
+                    indexer.movie_search_capatabilities = [
+                        part.strip().lower()
+                        for part in movie_search.attrib.get('supportedParams', '').split(',')
+                        if part.strip()
+                    ]
+                else:
+                    self.logger.info(f"Movie search not available for {indexer.title}")
 
-            indexer_list.append(indexer)
+                if tv_search is not None:
+                    indexer.tv_search_capatabilities = [
+                        part.strip().lower()
+                        for part in tv_search.attrib.get('supportedParams', '').split(',')
+                        if part.strip()
+                    ]
+                else:
+                    self.logger.info(f"TV search not available for {indexer.title}")
+
+                indexer_list.append(indexer)
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                self.logger.warning("Skipping malformed indexer: %s", exc)
         return indexer_list
 
     def __get_torrent_links_from_xml(self, xml_content):
@@ -816,34 +824,40 @@ class JackettService:
         namespace = {'torznab': 'http://torznab.com/schemas/2015/feed'}
 
         for item in xml_root.findall('.//item'):
-            result = JackettResult()
+            try:
+                result = JackettResult()
 
-            def get_text(tag, default=''):
-                node = item.find(tag)
-                return node.text.strip() if node is not None and node.text else default
+                def get_text(tag, default=''):
+                    node = item.find(tag)
+                    return node.text.strip() if node is not None and node.text else default
 
-            result.raw_title = get_text('title', 'Unknown')
-            raw_size = get_text('size', '0')
-            result.size = raw_size if raw_size.isdigit() else '0'
-            result.indexer = get_text('jackettindexer', 'Unknown')
-            result.privacy = get_text('type', 'public')
+                result.raw_title = get_text('title', 'Unknown')
+                raw_size = get_text('size', '0')
+                result.size = raw_size if raw_size.isdigit() else '0'
+                result.indexer = get_text('jackettindexer', 'Unknown')
+                result.privacy = get_text('type', 'public')
 
-            link = get_text('link', '')
-            guid = get_text('guid', '')
+                link = get_text('link', '')
+                guid = get_text('guid', '')
 
-            result.link = link if link else guid
-            result.detail_link = guid if guid else link
+                result.link = link if link else guid
+                result.detail_link = guid if guid else link
 
-            magnet = item.find('.//torznab:attr[@name="magneturl"]', namespace)
-            result.magnet = magnet.attrib['value'] if magnet is not None else None
-            info_hash = item.find('.//torznab:attr[@name="infohash"]', namespace)
-            result.info_hash = info_hash.attrib['value'] if info_hash is not None else None
-            seeders = item.find('.//torznab:attr[@name="seeders"]', namespace)
-            result.seeders = seeders.attrib['value'] if seeders is not None else '0'
-
-            if int(result.seeders) <= -1:
-                continue
-            result_list.append(result)
+                magnet = item.find('.//torznab:attr[@name="magneturl"]', namespace)
+                result.magnet = magnet.get('value') if magnet is not None else None
+                info_hash = item.find('.//torznab:attr[@name="infohash"]', namespace)
+                result.info_hash = info_hash.get('value') if info_hash is not None else None
+                seeders = item.find('.//torznab:attr[@name="seeders"]', namespace)
+                try:
+                    seeders_value = int(seeders.get('value', '0')) if seeders is not None else 0
+                except (TypeError, ValueError):
+                    seeders_value = 0
+                if seeders_value < 0:
+                    continue
+                result.seeders = str(seeders_value)
+                result_list.append(result)
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                self.logger.warning("Skipping malformed Torznab result: %s", exc)
 
         return result_list
 
