@@ -57,6 +57,9 @@ class JackettService:
 
     SEARCH_TIMEOUT = 15.0
     HTTP_TIMEOUT = 15
+    INDEXER_CACHE_TTL = 60
+    _indexer_cache = {}
+    _indexer_cache_lock = threading.Lock()
     MOVIE_NO_YEAR_MERGE_THRESHOLD = 25
     MOVIE_NO_YEAR_RESULT_TAG = 'movie_no_year'
 
@@ -738,7 +741,17 @@ class JackettService:
         )
 
     def get_indexers(self):
-        if not self._indexers:
+        if self._indexers is not None:
+            return self._indexers
+
+        cache_key = (self.__base_url, self.__api_key)
+        # Shared across requests but isolated by both host and credentials.
+        with self._indexer_cache_lock:
+            cached = self._indexer_cache.get(cache_key)
+            if cached and cached[0] > time.monotonic():
+                self._indexers = cached[1]
+                return self._indexers
+
             self.logger.info("Indexer cache miss. Requesting API...")
             url = f"{self.__base_url}/indexers/all/results/torznab/api"
             params = {
@@ -748,22 +761,22 @@ class JackettService:
             }
             try:
                 response = self.__session.get(
-                    url,
-                    params=params,
-                    timeout=self.HTTP_TIMEOUT,
+                    url, params=params, timeout=self.HTTP_TIMEOUT,
                 )
                 response.raise_for_status()
-                self._indexers = self.__get_indexer_from_xml(response.text)
-                self.logger.info(
-                    f"Successfully retrieved {len(self._indexers)} indexers from "
-                    "Jackett. Storing in cache..."
-                )
+                indexers = self.__get_indexer_from_xml(response.text)
             except Exception as e:
-                self.logger.error(
-                    f"An exception occured while getting indexers from Jackett: {str(e)}"
-                )
+                self.logger.error("Failed to get indexer list: %s", type(e).__name__)
                 return []
-        return self._indexers
+
+            self._indexers = indexers
+            if len(self._indexer_cache) >= 32:
+                self._indexer_cache.clear()
+            self._indexer_cache[cache_key] = (
+                time.monotonic() + self.INDEXER_CACHE_TTL, indexers,
+            )
+            self.logger.info("Cached %s indexers for %ss", len(indexers), self.INDEXER_CACHE_TTL)
+            return indexers
 
     def __get_indexer_from_xml(self, xml_content):
         xml_root = ET.fromstring(xml_content)
