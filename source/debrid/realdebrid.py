@@ -90,7 +90,8 @@ class RealDebrid(BaseDebrid):
 
         magnet = query['magnet']
         stream_type = query['type']
-        file_index = int(query['file_index']) if query['file_index'] is not None else None
+        file_index = int(query['file_index']) if query.get('file_index') is not None else None
+        file_name = query.get('file_name')
         season = query['season']
         episode = query['episode']
         torrent_download = unquote(query["torrent_download"]) if query["torrent_download"] is not None else None
@@ -105,7 +106,9 @@ class RealDebrid(BaseDebrid):
             if stream_type == "movie":
                 torrent_info = self.get_torrent_info(cached_torrent_ids[0])
             elif stream_type == "series":
-                torrent_info = self.__get_cached_torrent_info(cached_torrent_ids, file_index, season, episode)
+                torrent_info = self.__get_cached_torrent_info(
+                    cached_torrent_ids, file_index, season, episode, file_name
+                )
             else:
                 return "Error: Unsupported stream type."
 
@@ -116,7 +119,12 @@ class RealDebrid(BaseDebrid):
                 return "Error: Failed to get torrent info."
 
             logger.info("Selecting file")
-            self.__select_file(torrent_info, stream_type, file_index, season, episode)
+            chosen = self.__select_file(
+                torrent_info, stream_type, file_index, season, episode, file_name
+            )
+            if chosen is None:
+                logger.warning("No matching video file in Real-Debrid torrent %s", info_hash)
+                return NO_CACHE_VIDEO_URL
 
             # == operator, to avoid adding the season pack twice and setting 5 as season pack treshold
             if len(cached_torrent_ids) == 0 and stream_type == "series" and len(torrent_info["files"]) > 5:
@@ -134,10 +142,19 @@ class RealDebrid(BaseDebrid):
             return NO_CACHE_VIDEO_URL
 
         if len(links) > 1:
-            logger.info("Finding appropiate link")
-            download_link = self.__find_appropiate_link(torrent_info, links, file_index, season, episode)
+            logger.info("Finding appropriate link")
+            # Selection / season-pack prefetch can change the selected set.
+            fresh_torrent_info = self.get_torrent_info(torrent_id)
+            if fresh_torrent_info:
+                torrent_info = fresh_torrent_info
+            download_link = self.__find_appropiate_link(
+                torrent_info, links, stream_type, file_index, season, episode, file_name
+            )
         else:
             download_link = links[0]
+
+        if not download_link or download_link == NO_CACHE_VIDEO_URL:
+            return NO_CACHE_VIDEO_URL
 
         logger.info(f"Unrestricting the download link: {download_link}")
         # Unrestricting the download link
@@ -160,35 +177,80 @@ class RealDebrid(BaseDebrid):
 
         return torrent_ids
 
-    def __get_cached_torrent_info(self, cached_ids, file_index, season, episode):
-        cached_torrents = []
-        for cached_torrent_id in cached_ids:
-            cached_torrent_info = self.get_torrent_info(cached_torrent_id)
-            if self.__torrent_contains_file(cached_torrent_info, file_index, season, episode):
-                if len(cached_torrent_info["links"]) > 0:  # If the links are ready
-                    return cached_torrent_info
+    @staticmethod
+    def __file_matches_name(file, file_name):
+        if not file_name:
+            return False
+        return str(file.get('path', '')).replace('\\', '/').rsplit('/', 1)[-1].casefold() == (
+            str(file_name).replace('\\', '/').rsplit('/', 1)[-1].casefold()
+        )
 
-                cached_torrents.append(cached_torrent_info)
-
-        if len(cached_torrents) == 0:
+    def __choose_file(self, files, stream_type, file_index, season, episode, file_name):
+        videos = [
+            f for f in files if is_video_file(str(f.get('path', '')).lower())
+        ]
+        if not videos:
             return None
 
-        return max(cached_torrents, key=lambda x: x['progress'])
+        # file_index is only a provider-issued file ID supplied by the
+        # Real-Debrid availability response, never a .torrent position.
+        by_id = next(
+            (f for f in videos if file_index is not None
+             and str(f.get('id')) == str(file_index)), None
+        )
+        by_name = next(
+            (f for f in videos if self.__file_matches_name(f, file_name)), None
+        )
 
-    def __torrent_contains_file(self, torrent_info, file_index, season, episode):
-        if not torrent_info or "files" not in torrent_info:
+        if stream_type == 'movie':
+            return by_id or by_name or max(videos, key=lambda f: f.get('bytes') or 0)
+
+        if stream_type != 'series':
+            return None
+
+        matches = []
+        if season is not None and episode is not None:
+            for f in videos:
+                try:
+                    if season_episode_in_filename(str(f['path']).lower(), season, episode):
+                        matches.append(f)
+                except (AttributeError, TypeError, ValueError):
+                    continue
+
+        if matches:
+            if by_name in matches:
+                return by_name
+            if by_id in matches:
+                return by_id
+            return max(matches, key=lambda f: f.get('bytes') or 0)
+
+        # Known filename from .torrent or provider data is usable even
+        # when the episode parser cannot identify an unconventional name.
+        if by_name:
+            return by_name
+        if by_id:
+            return by_id
+        if len(videos) == 1:
+            return videos[0]
+        return None
+
+    def __get_cached_torrent_info(self, cached_ids, file_index, season, episode, file_name=None):
+        candidates = []
+        for torrent_id in cached_ids:
+            info = self.get_torrent_info(torrent_id)
+            if self.__torrent_contains_file(info, file_index, season, episode, file_name):
+                if info.get('links'):
+                    return info
+                candidates.append(info)
+        return max(candidates, key=lambda x: x.get('progress') or 0) if candidates else None
+
+    def __torrent_contains_file(self, torrent_info, file_index, season, episode, file_name=None):
+        if not torrent_info or 'files' not in torrent_info:
             return False
-
-        if file_index is None:
-            for file in torrent_info["files"]:
-                if file["selected"] and season_episode_in_filename(file['path'], season, episode):
-                    return True
-        else:
-            for file in torrent_info["files"]:
-                if file['id'] == file_index:
-                    return file["selected"] == 1
-
-        return False
+        selected = [f for f in torrent_info['files'] if f.get('selected') == 1]
+        return self.__choose_file(
+            selected, 'series', file_index, season, episode, file_name
+        ) is not None
 
     def __add_magnet_or_torrent(self, magnet, torrent_download=None):
         torrent_id = ""
@@ -230,60 +292,29 @@ class RealDebrid(BaseDebrid):
         time.sleep(10)
         return self.get_torrent_info(torrent_info["id"])
 
-    def __select_file(self, torrent_info, stream_type, file_index, season, episode):
-        torrent_id = torrent_info["id"]
-        if file_index is not None:
-            logger.info(f"Selecting file_index: {file_index}")
-            self.select_files(torrent_id, file_index)
-            return
+    def __select_file(self, torrent_info, stream_type, file_index, season, episode, file_name=None):
+        file = self.__choose_file(
+            torrent_info.get('files', []), stream_type, file_index, season, episode, file_name
+        )
+        if file is None:
+            return None
+        file_id = file['id']
+        logger.info("Selecting Real-Debrid file ID: %s", file_id)
+        self.select_files(torrent_info['id'], file_id)
+        return file_id
 
-        files = torrent_info["files"]
-        if stream_type == "movie":
-            largest_file_id = max(files, key=lambda x: x['bytes'])['id']
-            logger.info(f"Selecting file_index: {largest_file_id}")
-            self.select_files(torrent_id, largest_file_id)
-        elif stream_type == "series":
-            strict_matching_files = []
-            matching_files = []
-            for file in files:
-                if season_episode_in_filename(file["path"], season, episode, strict=True):
-                    strict_matching_files.append(file)
-                elif season_episode_in_filename(file["path"], season, episode, strict=False):
-                    matching_files.append(file)
-
-            if len(strict_matching_files) > 0:
-                matching_files = strict_matching_files
-
-            largest_file_id = max(matching_files, key=lambda x: x['bytes'])['id']
-            logger.info(f"Selecting file_index: {largest_file_id}")
-            self.select_files(torrent_id, largest_file_id)
-
-    def __find_appropiate_link(self, torrent_info, links, file_index, season, episode):
-        selected_files = list(filter(lambda file: file["selected"] == 1, torrent_info["files"]))
-
-        index = 0
-        if file_index is not None:
-            for file in selected_files:
-                if file["id"] == file_index:
-                    break
-                index += 1
-        else:
-            matching_indexes = []
-            strict_matching_indexes = []
-            for file in selected_files:
-                if season_episode_in_filename(file["path"], season, episode, strict=True):
-                    strict_matching_indexes.append({"index": index, "file": file})
-                elif season_episode_in_filename(file["path"], season, episode, strict=False):
-                    matching_indexes.append({"index": index, "file": file})
-                index += 1
-
-            if len(strict_matching_indexes) > 0:
-                matching_indexes = strict_matching_indexes
-
-            index = max(matching_indexes, lambda x: x["file"]["bytes"])["index"]
-
-        if len(links) - 1 < index:
-            logger.debug(f"From selected files {selected_files}, index: {index} is out of range for {links}.")
+    def __find_appropiate_link(self, torrent_info, links, stream_type,
+                               file_index, season, episode, file_name=None):
+        selected = [f for f in torrent_info.get('files', []) if f.get('selected') == 1]
+        file = self.__choose_file(
+            selected, stream_type, file_index, season, episode, file_name
+        )
+        if file is None:
             return NO_CACHE_VIDEO_URL
-
-        return links[index]
+        for index, selected_file in enumerate(selected):
+            if str(selected_file.get('id')) == str(file['id']):
+                if index < len(links):
+                    return links[index]
+                break
+        logger.warning("Real-Debrid selected file/link mismatch")
+        return NO_CACHE_VIDEO_URL
