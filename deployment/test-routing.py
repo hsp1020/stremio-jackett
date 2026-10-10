@@ -625,6 +625,26 @@ with patch("main._get_results_sync", return_value={"streams": [{"name": "ok"}]})
     )
     assert wrapped_result == {"streams": [{"name": "ok"}]}
     search.assert_called_once()
+
+# A fourth concurrent search waits while playback and lightweight routes remain free.
+async def check_search_limit():
+    active = 0
+    peak = 0
+    async def fake_worker(*args):
+        nonlocal active, peak
+        active += 1
+        peak = max(active, peak)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return {"streams": []}
+    with patch("main.run_in_threadpool", side_effect=fake_worker):
+        await asyncio.gather(*[
+            get_results("conf", "movie", f"tt{i}", SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+            for i in range(6)
+        ])
+    assert peak == 3, peak
+
+asyncio.run(check_search_limit())
 with patch("main.parse_config", return_value={"service": "realdebrid"}), \
      patch("main.decodeb64", return_value='{}'), \
      patch("main.get_debrid_service", return_value=SimpleNamespace(
