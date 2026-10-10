@@ -4,6 +4,7 @@ from typing import List
 from models.media import Media
 from torrent.torrent_item import TorrentItem
 from utils.logger import setup_logger
+from utils.detection import detect_subtitle_hint
 from utils.string_encoding import encodeb64
 
 logger = setup_logger(__name__)
@@ -14,6 +15,10 @@ DIRECT_TORRENT = "[🏴‍☠️]"
 
 def get_emoji(language):
     emoji_dict = {
+        "ko": "🇰🇷",
+        "ja": "🇯🇵",
+        "zh": "🇨🇳",
+        "unknown": "❔",
         "fr": "🇫🇷",
         "en": "🇬🇧",
         "es": "🇪🇸",
@@ -27,7 +32,7 @@ def get_emoji(language):
         "la": "🇲🇽",
         "multi": "🌍"
     }
-    return emoji_dict.get(language, "🇬🇧")
+    return emoji_dict.get(language, "❔")
 
 def filter_by_availability(item):
     if item["name"].startswith(INSTANTLY_AVAILABLE):
@@ -61,6 +66,9 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
     for language in torrent_item.languages:
         title += f"{get_emoji(language)}/"
     title = title[:-1]
+    subtitle_hint = detect_subtitle_hint(torrent_item.raw_title)
+    if subtitle_hint:
+        title += f"\n📝 {subtitle_hint} SUB (filename)"
 
     if debrid:
         if torrent_item.availability == True:
