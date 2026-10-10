@@ -721,6 +721,10 @@ assert rd._RealDebrid__choose_file(
     [unusual_names[0]], "series", None, "S02", "E03", None
 )["id"] == 13
 assert rd._RealDebrid__choose_file(
+    [{"id": 41, "path": "/Show/Show.S02E04.mkv", "bytes": 150 * gib, "selected": 1}],
+    "series", None, "S02", "E03", None
+) is None  # A known wrong episode must never be the single-video fallback.
+assert rd._RealDebrid__choose_file(
     rd_files, "series", 27, "S02", "E03", None
 )["id"] == 27
 
