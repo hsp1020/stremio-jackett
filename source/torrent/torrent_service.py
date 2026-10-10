@@ -126,7 +126,7 @@ class TorrentService:
             with self._perf_lock:
                 self._perf["prefetch_errors"] += 1
             self.logger.debug(
-                f"[TorrentPrefetch] failed: {e}"
+                f"[TorrentPrefetch] failed: {type(e).__name__}"
             )
             return None, None
 
@@ -165,6 +165,12 @@ class TorrentService:
                 "[PERF][TorrentPrefetch] candidates=0"
             )
             return
+
+        for link in candidates:
+            self.logger.info(
+                "[DL-URL-SHA256] sha256=%s",
+                hashlib.sha256(link.encode("utf-8")).hexdigest()
+            )
 
         workers = min(8, len(candidates))
 
@@ -244,7 +250,7 @@ class TorrentService:
                         fail_count += 1
                 except Exception as e:
                     fail_count += 1
-                    self.logger.error(f"Error processing torrent: {e}")
+                    self.logger.error(f"Error processing torrent: {type(e).__name__}")
 
         self.logger.debug(f"[TorrentService] 변환 완료. 성공: {success_count}, 실패/스킵: {fail_count}, 총 반환: {len(torrent_items_result)}")
 
@@ -331,16 +337,14 @@ class TorrentService:
                 self.logger.info(
                     f"[PERF][TorrentService] WEB ITEM: "
                     f"indexer={getattr(torrent_item, 'indexer', None)} / "
-                    f"title={getattr(torrent_item, 'raw_title', None)} / "
-                    f"link={getattr(torrent_item, 'link', None)} / "
-                    f"detail={getattr(torrent_item, 'detail_link', None)}"
+                    f"title={getattr(torrent_item, 'raw_title', None)}"
                 )
 
             session = get_thread_session()
             return self.__process_web_url(torrent_item, session)
 
         except Exception as e:
-            self.logger.error(f"Unexpected error in __process_single: {e}")
+            self.logger.error(f"Unexpected error in __process_single: {type(e).__name__}")
             return None
 
     def __process_web_url(self, result: TorrentItem, session: requests.Session):
@@ -489,7 +493,7 @@ class TorrentService:
                     response.close()
 
         except Exception as e:
-            self.logger.debug(f"Failed to process URL {result.link}: {e}")
+            self.logger.debug(f"Failed to process URL: {type(e).__name__}")
 
         return result
 

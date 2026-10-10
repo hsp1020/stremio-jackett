@@ -197,7 +197,7 @@ class JackettService:
                     f"({time.time() - start_time:.2f}s)"
                 )
             except Exception as e:
-                self.logger.error(f"Error search thread {indexer.title}: {e}")
+                self.logger.error(f"Error search thread {indexer.title}: {type(e).__name__}")
 
         for indexer in indexers:
             thread = threading.Thread(target=thread_target, args=(media, indexer))
@@ -402,7 +402,7 @@ class JackettService:
                                 item.imdb_id_search = True
                         process_and_count(data, result_tag)
                     except Exception as e:
-                        self.logger.error(f"Error in parallel search task: {e}")
+                        self.logger.error(f"Error in parallel search task: {type(e).__name__}")
 
     def __search_movie_indexer(
         self,
@@ -474,11 +474,10 @@ class JackettService:
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
                 response = self._search_torznab_request(url, params_dict)
-                self.logger.debug(f"[Jackett][Movie][{search_type}] URL: {response.request.url}")
                 response.raise_for_status()
                 return self.__get_torrent_links_from_xml(response.text)
             except Exception as e:
-                self.logger.error(f"Movie search [{search_type}] failed for {indexer.title}: {e}")
+                self.logger.error(f"Movie search [{search_type}] failed for {indexer.title}: {type(e).__name__}")
                 return []
 
         if imdb_only:
@@ -624,11 +623,10 @@ class JackettService:
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
                 response = self._search_torznab_request(url, params_dict)
-                self.logger.debug(f"[Jackett][Series][{pattern_name}] URL: {response.request.url}")
                 response.raise_for_status()
                 return self.__get_torrent_links_from_xml(response.text)
             except Exception as e:
-                self.logger.error(f"Series search [{pattern_name}] failed for {indexer.title}: {e}")
+                self.logger.error(f"Series search [{pattern_name}] failed for {indexer.title}: {type(e).__name__}")
                 return []
 
         def create_params(base_params, title, suffix):
@@ -868,7 +866,7 @@ class JackettService:
                     indexer.language = base_language
 
                 self.logger.info(
-                    f"Indexer: {indexer.title} - {indexer.link} - {indexer.type}"
+                    f"Indexer: {indexer.title} - {indexer.type}"
                 )
 
                 movie_search = item.find('.//searching/movie-search[@available="yes"]')
