@@ -492,13 +492,12 @@ movie_torrent = movie_service._TorrentService__process_torrent(
         (100 * 1024 ** 2, ["Movie", "Movie.mkv"]),
     ])
 )
-assert movie_torrent.file_index == 2
+assert movie_torrent.file_index is None
 assert movie_torrent.direct_file_index == 1
-assert movie_torrent.direct_file_missing is False
 single_file = movie_service._TorrentService__process_torrent(
     make_torrent_item("movie"), torrent_bytes()
 )
-assert single_file.file_index == 1 and single_file.direct_file_index == 0
+assert single_file.file_index is None and single_file.direct_file_index == 0
 
 series_media = Series("tt100:2:3", ["Show"], "S02", "E03", ["en"])
 series_service = TorrentService(series_media)
@@ -509,19 +508,19 @@ series_files = [
 episode_torrent = series_service._TorrentService__process_torrent(
     make_torrent_item("series"), torrent_bytes(series_files)
 )
-assert episode_torrent.file_index == 2 and episode_torrent.direct_file_index == 1
+assert episode_torrent.file_index is None and episode_torrent.direct_file_index == 1
 assert episode_torrent.file_name == "Show.S02E03.mkv"
 missing_episode = series_service._TorrentService__process_torrent(
     make_torrent_item("series"),
     torrent_bytes([(200 * 1024 ** 2, ["Show", "Show.S02E04.mkv"])])
 )
 assert missing_episode.file_index is None
-assert missing_episode.direct_file_missing is True
 direct_config = {
     "maxResults": "1", "addonHost": "https://example.invalid",
     "debrid": False, "torrenting": True,
 }
-assert parse_to_stremio_streams([missing_episode], direct_config, series_media) == []
+missing_streams = parse_to_stremio_streams([missing_episode], direct_config, series_media)
+assert len(missing_streams) == 1 and "fileIdx" not in missing_streams[0]
 direct_streams = parse_to_stremio_streams([episode_torrent], direct_config, series_media)
 assert len(direct_streams) == 1 and direct_streams[0]["fileIdx"] == 1
 single_streams = parse_to_stremio_streams(
@@ -529,7 +528,8 @@ single_streams = parse_to_stremio_streams(
 )
 assert len(single_streams) == 1 and single_streams[0]["fileIdx"] == 0
 debrid_query = episode_torrent.to_debrid_stream_query(series_media)
-assert debrid_query["file_index"] == 2  # Debrid ID is not Stremio fileIdx.
+assert debrid_query["file_index"] is None
+assert debrid_query["file_name"] == "Show.S02E03.mkv"
 
 # HTTP redirect handling: relative URLs, unsafe protocols and bounded bodies.
 class StreamResponse:
@@ -655,3 +655,105 @@ assert playback.status_code == 302
 assert playback.headers["cache-control"] == "no-store"
 assert playback.headers["location"] == "https://video.invalid/temporary"
 print("Phase 3+5 file selection, redirect, cache, languages, timeout and playback tests passed")
+
+# Retain unmatched direct streams while omitting fileIdx, including movie
+# torrents without a recognized video extension.
+no_video = movie_service._TorrentService__process_torrent(
+    make_torrent_item("movie"), torrent_bytes([(10, ["Movie", "readme.txt"])])
+)
+no_video_streams = parse_to_stremio_streams(
+    [no_video], direct_config, Movie("tt100", ["Movie"], "2026", ["en"])
+)
+assert len(no_video_streams) == 1 and "fileIdx" not in no_video_streams[0]
+assert single_streams[0]["fileIdx"] == 0
+assert movie_torrent.file_name == "Movie.mkv"
+
+# Keep Debrid result even if the title parser did not identify an episode.
+debrid_only = {**direct_config, "debrid": True, "torrenting": False}
+assert len(parse_to_stremio_streams([missing_episode], debrid_only, series_media)) == 1
+
+from debrid.realdebrid import RealDebrid
+from constants import NO_CACHE_VIDEO_URL
+rd = RealDebrid({"debridKey": "test"})
+
+# Real-Debrid file IDs may not equal torrent positions (+1), e.g. padding
+# and different provider indices: use actual files[].id, not 1 or 2.
+rd_files = [
+    {"id": 8, "path": "/Show/sample.mp4", "bytes": 5, "selected": 0},
+    {"id": 27, "path": "/Show/Show.S02E03.MKV", "bytes": 150 * gib, "selected": 1},
+    {"id": 41, "path": "/Show/Show.S02E04.mkv", "bytes": 160 * gib, "selected": 1},
+]
+with patch.object(rd, "select_files") as selected:
+    assert rd._RealDebrid__select_file(
+        {"id": "RD-test", "files": rd_files},
+        "series", None, "S02", "E03", "Show.S02E03.mkv"
+    ) == 27
+    selected.assert_called_once_with("RD-test", 27)
+
+assert rd._RealDebrid__torrent_contains_file(
+    {"files": rd_files, "links": ["ep3", "ep4"]},
+    None, "S02", "E03", "Show.S02E03.mkv"
+)
+assert rd._RealDebrid__find_appropiate_link(
+    {"files": rd_files}, ["ep3", "ep4"],
+    "series", None, "S02", "E03", "Show.S02E03.mkv"
+) == "ep3"
+assert rd._RealDebrid__find_appropiate_link(
+    {"files": rd_files}, ["ep3", "ep4"],
+    "series", None, "S02", "E04", None
+) == "ep4"
+assert rd._RealDebrid__find_appropiate_link(
+    {"files": rd_files}, ["ep3", "ep4"],
+    "series", None, "S02", "E09", None
+) == NO_CACHE_VIDEO_URL
+
+unusual_names = [
+    {"id": 13, "path": "/Show/episode_unknown.mkv", "bytes": 100 * gib, "selected": 1},
+    {"id": 44, "path": "/Show/other.mkv", "bytes": 110 * gib, "selected": 1},
+]
+assert rd._RealDebrid__choose_file(
+    unusual_names, "series", None, "S02", "E03", "episode_unknown.mkv"
+)["id"] == 13
+assert rd._RealDebrid__choose_file(
+    unusual_names, "series", None, "S02", "E03", None
+) is None
+assert rd._RealDebrid__choose_file(
+    [unusual_names[0]], "series", None, "S02", "E03", None
+)["id"] == 13
+assert rd._RealDebrid__choose_file(
+    [{"id": 41, "path": "/Show/Show.S02E04.mkv", "bytes": 150 * gib, "selected": 1}],
+    "series", None, "S02", "E03", None
+) is None  # A known wrong episode must never be the single-video fallback.
+assert rd._RealDebrid__choose_file(
+    rd_files, "series", 27, "S02", "E03", None
+)["id"] == 27
+
+# End-to-end Real-Debrid cached playback uses the requested episode's link.
+import json
+playback_query = episode_torrent.to_debrid_stream_query(series_media)
+cached_info = {
+    "id": "RD-cached",
+    "files": rd_files, "links": ["ep3", "ep4"], "progress": 100,
+}
+with (
+    patch.object(rd, "_RealDebrid__get_cached_torrent_ids", return_value=["RD-cached"]),
+    patch.object(rd, "get_torrent_info", return_value=cached_info),
+    patch.object(rd, "wait_for_link", return_value=["ep3", "ep4"]),
+    patch.object(rd, "unrestrict_link", return_value={"download": "https://video.test/e03"}) as unlock,
+):
+    assert rd.get_stream_link(json.dumps(playback_query)) == "https://video.test/e03"
+    unlock.assert_called_once_with("ep3")
+
+# Preserve playback of older links without the newly optional file_name.
+old_query = dict(playback_query)
+old_query.pop("file_name")
+old_query["file_index"] = 27
+with (
+    patch.object(rd, "_RealDebrid__get_cached_torrent_ids", return_value=["RD-cached"]),
+    patch.object(rd, "get_torrent_info", return_value=cached_info),
+    patch.object(rd, "wait_for_link", return_value=["ep3", "ep4"]),
+    patch.object(rd, "unrestrict_link", return_value={"download": "https://video.test/e03"}),
+):
+    assert rd.get_stream_link(json.dumps(old_query)) == "https://video.test/e03"
+
+print("FileIdx, Real-Debrid ID, P2P fallback and cached playback tests passed")

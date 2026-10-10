@@ -90,22 +90,25 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             }
         })
 
-    if torrenting and torrent_item.privacy == "public" and not getattr(torrent_item, 'direct_file_missing', False):
+    if torrenting and torrent_item.privacy == "public":
         name = f"{DIRECT_TORRENT}\n"
         if parsed_data.quality and parsed_data.quality != "Unknown" and \
                 parsed_data.quality != "":
             name += f"({parsed_data.quality})"
 
-        results.append({
+        direct_stream = {
             "name": name,
             "description": title,
             "infoHash": torrent_item.info_hash,
-            "fileIdx": getattr(torrent_item, "direct_file_index", None),
             "behaviorHints":{
                 "bingeGroup": f"stremio-jackett-{torrent_item.info_hash}",
                 "filename": torrent_item.file_name if torrent_item.file_name is not None else torrent_item.raw_title
             }
-        })
+        }
+        file_idx = getattr(torrent_item, "direct_file_index", None)
+        if file_idx is not None:
+            direct_stream["fileIdx"] = file_idx
+        results.append(direct_stream)
 
 def parse_to_stremio_streams(torrent_items: List[TorrentItem], config, media):
     stream_list = []
