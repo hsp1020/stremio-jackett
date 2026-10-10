@@ -148,10 +148,12 @@ class TMDB(MetadataProvider):
                 def valid_season(value):
                     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
-                imdb_season = (data.get("imdb") or {}).get("seasonNumber")
-                tvdb_season = (data.get("tvdb") or {}).get("seasonNumber")
-                season = imdb_season if valid_season(imdb_season) else tvdb_season
-                if not valid_season(season):
+                seasons = (
+                    (data.get(source) or {}).get("seasonNumber")
+                    for source in ("imdb", "tvdb", "trakt", "tmdb")
+                )
+                season = next((value for value in seasons if valid_season(value)), None)
+                if season is None:
                     continue
                 self.logger.info(
                     "[ID변환] Kitsu(%s) -> IMDb(%s:%s:%s) via %s",

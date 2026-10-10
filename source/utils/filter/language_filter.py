@@ -19,12 +19,10 @@ class LanguageFilter(BaseFilter):
             if len(torrent.languages) == 0:
                 continue
 
-            for language in torrent.languages:
-                if language in self.config['languages']:
-                    filtered_data.append(torrent)
-                    continue
-
-            if "multi" in torrent.languages:
+            if (
+                any(language in self.config['languages'] for language in torrent.languages)
+                or "multi" in torrent.languages
+            ):
                 filtered_data.append(torrent)
         return filtered_data
 

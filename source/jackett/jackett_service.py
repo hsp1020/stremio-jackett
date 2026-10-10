@@ -332,12 +332,19 @@ class JackettService:
                     params, name = task[0], task[1]
                     result_tag = task[2] if len(task) > 2 else None
                     future = executor.submit(search_func, params, name)
-                    futures[future] = result_tag
+                    futures[future] = (
+                        result_tag,
+                        bool(params.get(self.IMDB_ID_PARAM)),
+                    )
 
                 for future in as_completed(futures):
                     try:
                         data = future.result()
-                        process_and_count(data, futures[future])
+                        result_tag, is_imdb_id_search = futures[future]
+                        if is_imdb_id_search and data:
+                            for item in data:
+                                item.imdb_id_search = True
+                        process_and_count(data, result_tag)
                     except Exception as e:
                         self.logger.error(f"Error in parallel search task: {e}")
 

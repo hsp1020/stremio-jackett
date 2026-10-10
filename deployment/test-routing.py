@@ -1,13 +1,19 @@
 from unittest.mock import patch
+from queue import Queue
+from threading import Lock
 from requests.exceptions import ConnectionError
 from types import SimpleNamespace
 
 from jackett.jackett_indexer import JackettIndexer
+from jackett.jackett_result import JackettResult
 from jackett.jackett_service import JackettService
 from metdata.tmdb import TMDB
 from models.movie import Movie
 from models.series import Series
 from torrent.torrent_smart_container import TorrentSmartContainer
+from utils.filter_results import remove_non_matching_title, filter_out_non_matching
+from utils.filter.language_filter import LanguageFilter
+from utils.filter.quality_exclusion_filter import QualityExclusionFilter
 
 
 class FakeResponse:
@@ -21,14 +27,16 @@ class FakeResponse:
         return self.data
 
 
-def mapping(imdb_season=None, tvdb_season=None, imdb_id="tt36034547"):
+def mapping(imdb_season=None, tvdb_season=None, imdb_id="tt36034547",
+            trakt_season=None, tmdb_season=None):
     return {
         "success": True,
         "data": {
             "mappings": {"imdbId": imdb_id, "kitsuId": 50634, "themoviedbId": 278043},
             "imdb": {"seasonNumber": imdb_season} if imdb_season is not None else None,
             "tvdb": {"seasonNumber": tvdb_season},
-            "tmdb": {"seasonNumber": 1, "fromEpisode": 13},
+            "trakt": {"seasonNumber": trakt_season},
+            "tmdb": {"seasonNumber": tmdb_season, "fromEpisode": 13},
         },
     }
 
@@ -49,6 +57,20 @@ with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(imdb_s
     ]
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping())):
     assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") is None
+
+# Use existing AIOStreams JSON season values, without calling the Trakt API.
+for data, expected in (
+    (mapping(imdb_season=1, tvdb_season=2, trakt_season=3, tmdb_season=4), 1),
+    (mapping(imdb_season=0, tvdb_season=2, trakt_season=3, tmdb_season=4), 2),
+    (mapping(trakt_season=3, tmdb_season=4), 3),
+    (mapping(tmdb_season=4), 4),
+):
+    with patch("metdata.tmdb.requests.get", return_value=FakeResponse(data)) as network:
+        assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "8"], "series") == [
+            "tt36034547", str(expected), "8"
+        ]
+        network.assert_called_once()
+
 with patch("metdata.tmdb.requests.get") as network:
     assert tmdb.get_metadata("trakt:1234", "movie") is None
     network.assert_not_called()
@@ -192,4 +214,62 @@ service._JackettService__search_movie_indexer(
 assert len(captured) == 1 and captured[0][0]["t"] == "movie"
 assert captured[0][0]["imdbid"] == "tt26743760" and "q" not in captured[0][0]
 
-print("Anime mapping fallback, Jackett capabilities and deduplication tests passed")
+# Tag results by the actual Torznab search parameters, not by indexer capability.
+source_service = JackettService({"jackettApiKey": "test", "jackettHost": "http://localhost"})
+source_queue = Queue()
+
+def stub_search(params, task_name):
+    result = JackettResult()
+    result.raw_title = "Unrelated Movie S02E03"
+    result.info_hash = "hash-" + task_name
+    result.parsed_data = SimpleNamespace(
+        raw_title=result.raw_title, type="series", seasons=[2], episodes=[3]
+    )
+    return [result]
+
+source_service._JackettService__execute_search_tasks(
+    indexer,
+    [
+        ({"t": "tvsearch", "imdbid": "tt26743760", "q": "Different"}, "id"),
+        ({"t": "search", "q": "Different"}, "title"),
+    ],
+    stub_search,
+    source_queue,
+    [0],
+    Lock(),
+    set(),
+    Lock(),
+)
+results = []
+while not source_queue.empty():
+    results.extend(source_queue.get_nowait())
+assert len(results) == 2
+imdb_hit = next(result for result in results if result.imdb_id_search)
+title_hit = next(result for result in results if not result.imdb_id_search)
+assert imdb_hit.imdb_id_search is True and title_hit.imdb_id_search is False
+assert JackettResult().imdb_id_search is False
+with patch("utils.filter_results._matches_standard_title", return_value=False):
+    assert remove_non_matching_title([imdb_hit, title_hit], ["Desired Series"]) == [imdb_hit]
+assert filter_out_non_matching([imdb_hit], "S02", "E03") == [imdb_hit]
+assert filter_out_non_matching([imdb_hit], "S02", "E04") == []
+
+# Filtering one excluded item must not truncate subsequent results.
+quality_items = [
+    SimpleNamespace(parsed_data=SimpleNamespace(quality=q))
+    for q in ("WEB-DL", "CAM", "BluRay")
+]
+assert QualityExclusionFilter({"exclusion": ["CAM"]})(quality_items) == [
+    quality_items[0], quality_items[2]
+]
+unknown_item = SimpleNamespace(parsed_data=SimpleNamespace(quality=None))
+assert QualityExclusionFilter({"exclusion": ["Unknown"]})([unknown_item]) == []
+
+# Multi-language and 'multi' tags cannot occupy multiple result slots.
+multi_item = SimpleNamespace(languages=["ko", "en", "multi"])
+single_item = SimpleNamespace(languages=["ko"])
+assert LanguageFilter({"languages": ["ko", "en"], "getAllLanguages": False})(
+    [multi_item, single_item]
+) == [multi_item, single_item]
+
+print("Anime season, request provenance, episode, quality and language tests passed")
+

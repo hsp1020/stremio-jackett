@@ -20,14 +20,14 @@ class QualityExclusionFilter(BaseFilter):
         for stream in data:
             if stream.parsed_data.quality:
                 if stream.parsed_data.quality.upper() in excluded_qualities:
-                    break
+                    continue
                 if rips and stream.parsed_data.quality.upper() in self.RIPS:
-                    break
+                    continue
                 if cams and stream.parsed_data.quality.upper() in self.CAMS:
-                    break
+                    continue
                 filtered_items.append(stream)
             else:
-                if "Unknown" not in excluded_qualities:
+                if "UNKNOWN" not in excluded_qualities:
                     filtered_items.append(stream)
         return filtered_items
 

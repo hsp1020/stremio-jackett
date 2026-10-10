@@ -22,6 +22,7 @@ class JackettResult:
         self.type = None  # series or movie
 
         self.parsed_data = None  # Ranked result
+        self.imdb_id_search = False
 
     def convert_to_torrent_item(self):
         return TorrentItem(

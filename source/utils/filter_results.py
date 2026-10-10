@@ -792,6 +792,9 @@ def remove_non_matching_title(items: List, titles: List[str]) -> List:
     evaluated = 0
 
     for item in items:
+        if getattr(item, 'imdb_id_search', False):
+            filtered_items.append(item)
+            continue
         if (
             not hasattr(item, 'parsed_data')
             or not hasattr(item.parsed_data, 'raw_title')
