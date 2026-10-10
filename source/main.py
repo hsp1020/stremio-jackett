@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 from debrid.get_debrid_service import get_debrid_service
 from jackett.jackett_result import JackettResult
@@ -122,8 +123,19 @@ formatter = logging.Formatter('[%(asctime)s] p%(process)s {%(pathname)s:%(lineno
 
 logger.info("Started Jackett Addon")
 
+# Limit the number of simultaneous heavy searches without consuming
+# threadpool workers while other requests are queued. Playback stays free.
+_search_slots = asyncio.Semaphore(3)
+
 @app.get("/{config}/stream/{stream_type}/{stream_id}")
-def get_results(config: str, stream_type: str, stream_id: str, request: Request):
+async def get_results(config: str, stream_type: str, stream_id: str, request: Request):
+    async with _search_slots:
+        return await run_in_threadpool(
+            _get_results_sync, config, stream_type, stream_id, request
+        )
+
+
+def _get_results_sync(config: str, stream_type: str, stream_id: str, request: Request):
     logger.info(f"==== NEW REQUEST ARRIVED: {stream_type} | ID: {stream_id} ====")
     jackett_service = None
     start = time.time()
