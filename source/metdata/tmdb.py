@@ -40,8 +40,8 @@ class TMDB(MetadataProvider):
 
                 if full_id: prefix = full_id[0]
 
-            if prefix == "kitsu":
-                full_id = self.__convert_kitsu_to_imdb(full_id, media_type)
+            if prefix in ("kitsu", "mal"):
+                full_id = self.__convert_anime_to_imdb(full_id, media_type)
                 if not full_id:
                     return None
                 id = ":".join(full_id)
@@ -104,7 +104,7 @@ class TMDB(MetadataProvider):
         "aiostreams.viren070.me",
     )
 
-    def __convert_kitsu_to_imdb(self, full_id, media_type):
+    def __convert_anime_to_imdb(self, full_id, media_type):
         if len(full_id) < 2 or not full_id[1].isdigit() or int(full_id[1]) <= 0:
             return None
         if media_type == "movie":
@@ -118,7 +118,9 @@ class TMDB(MetadataProvider):
         else:
             return None
 
-        kitsu_id = int(full_id[1])
+        anime_type = full_id[0]
+        anime_id = int(full_id[1])
+        mapping_key = "kitsuId" if anime_type == "kitsu" else "malId"
         mapping_deadline = time.monotonic() + 12
         for host in self.ANIME_MAPPING_HOSTS:
             remaining = mapping_deadline - time.monotonic()
@@ -127,7 +129,7 @@ class TMDB(MetadataProvider):
             try:
                 response = requests.get(
                     f"https://{host}/api/v1/anime",
-                    params={"idType": "kitsuId", "idValue": kitsu_id},
+                    params={"idType": mapping_key, "idValue": anime_id},
                     timeout=(min(1.5, remaining), min(2.5, remaining)),
                 )
                 response.raise_for_status()
@@ -136,13 +138,13 @@ class TMDB(MetadataProvider):
                     continue
                 data = payload.get("data") or {}
                 ids = data.get("mappings") or {}
-                if str(ids.get("kitsuId")) != str(kitsu_id):
+                if str(ids.get(mapping_key)) != str(anime_id):
                     continue
                 imdb_id = ids.get("imdbId")
                 if not isinstance(imdb_id, str) or not re.fullmatch(r"tt\d+", imdb_id):
                     continue
                 if media_type == "movie":
-                    self.logger.info("[ID변환] Kitsu(%s) -> IMDb(%s)", kitsu_id, imdb_id)
+                    self.logger.info("[ID변환] %s(%s) -> IMDb(%s)", anime_type.upper(), anime_id, imdb_id)
                     return [imdb_id]
 
                 def valid_season(value):
@@ -156,14 +158,14 @@ class TMDB(MetadataProvider):
                 if season is None:
                     continue
                 self.logger.info(
-                    "[ID변환] Kitsu(%s) -> IMDb(%s:%s:%s) via %s",
-                    kitsu_id, imdb_id, season, episode, host,
+                    "[ID변환] %s(%s) -> IMDb(%s:%s:%s) via %s",
+                    anime_type.upper(), anime_id, imdb_id, season, episode, host,
                 )
                 return [imdb_id, str(season), episode]
             except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as exc:
                 self.logger.debug("[ID변환] Anime mapping host %s failed: %s", host, exc)
 
-        self.logger.warning("[ID변환] Kitsu(%s) -> IMDb mapping unavailable", kitsu_id)
+        self.logger.warning("[ID변환] %s(%s) -> IMDb mapping unavailable", anime_type.upper(), anime_id)
         return None
 
     def __get_tmdb_metadata(self, original_id, full_id, media_type):

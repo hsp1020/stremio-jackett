@@ -32,7 +32,7 @@ def mapping(imdb_season=None, tvdb_season=None, imdb_id="tt36034547",
     return {
         "success": True,
         "data": {
-            "mappings": {"imdbId": imdb_id, "kitsuId": 50634, "themoviedbId": 278043},
+            "mappings": {"imdbId": imdb_id, "kitsuId": 50634, "malId": 12345, "themoviedbId": 278043},
             "imdb": {"seasonNumber": imdb_season} if imdb_season is not None else None,
             "tvdb": {"seasonNumber": tvdb_season},
             "trakt": {"seasonNumber": trakt_season},
@@ -43,20 +43,46 @@ def mapping(imdb_season=None, tvdb_season=None, imdb_id="tt36034547",
 
 tmdb = TMDB({"tmdbApi": "test", "languages": ["en"]})
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(tvdb_season=2))):
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "1"], "series") == [
         "tt36034547", "2", "1"
     ]
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634"], "movie") == ["tt36034547"]
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634"], "movie") == ["tt36034547"]
     with patch.object(tmdb, "_TMDB__get_tmdb_metadata", side_effect=lambda i, parts, kind: (i, parts, kind)):
         result = tmdb.get_metadata("kitsu:50634:5", "series")
         assert result == ("tt36034547:2:5", ["tt36034547", "2", "5"], "series")
 
+# MAL input follows the same IMDb conversion with MAL-specific request and identity check.
+with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(tvdb_season=2))) as network:
+    assert tmdb._TMDB__convert_anime_to_imdb(["mal", "12345", "5"], "series") == [
+        "tt36034547", "2", "5"
+    ]
+    assert network.call_args.kwargs["params"] == {"idType": "malId", "idValue": 12345}
+    assert tmdb._TMDB__convert_anime_to_imdb(["mal", "12345"], "movie") == ["tt36034547"]
+    with patch.object(tmdb, "_TMDB__get_tmdb_metadata", side_effect=lambda i, parts, kind: (i, parts, kind)):
+        assert tmdb.get_metadata("mal:12345:7", "series") == (
+            "tt36034547:2:7", ["tt36034547", "2", "7"], "series"
+        )
+
+wrong_mal = mapping(tvdb_season=2)
+wrong_mal["data"]["mappings"]["malId"] = 99999
+with patch("metdata.tmdb.requests.get",
+           side_effect=[FakeResponse(wrong_mal), FakeResponse(mapping(trakt_season=3))]) as network:
+    assert tmdb._TMDB__convert_anime_to_imdb(["mal", "12345", "8"], "series") == [
+        "tt36034547", "3", "8"
+    ]
+    assert network.call_count == 2
+
+with patch("metdata.tmdb.requests.get") as network:
+    assert tmdb.get_metadata("mal:invalid:1", "series") is None
+    assert tmdb._TMDB__convert_anime_to_imdb(["mal", "12345", "0"], "series") is None
+    network.assert_not_called()
+
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(imdb_season=1, tvdb_season=3))):
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "1"], "series") == [
         "tt36034547", "1", "1"
     ]
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping())):
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") is None
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "1"], "series") is None
 
 # Use existing AIOStreams JSON season values, without calling the Trakt API.
 for data, expected in (
@@ -66,7 +92,7 @@ for data, expected in (
     (mapping(tmdb_season=4), 4),
 ):
     with patch("metdata.tmdb.requests.get", return_value=FakeResponse(data)) as network:
-        assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "8"], "series") == [
+        assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "8"], "series") == [
             "tt36034547", str(expected), "8"
         ]
         network.assert_called_once()
@@ -134,28 +160,28 @@ wrong_id = mapping(tvdb_season=2)
 wrong_id["data"]["mappings"]["kitsuId"] = 99999
 with patch("metdata.tmdb.requests.get",
            side_effect=[FakeResponse(wrong_id), FakeResponse(mapping(tvdb_season=2))]) as network:
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "8"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "8"], "series") == [
         "tt36034547", "2", "8"
     ]
     assert network.call_count == 2
 
 with patch("metdata.tmdb.requests.get",
            side_effect=[ConnectionError("first host down"), FakeResponse(mapping(tvdb_season=2))]) as network:
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "2"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "2"], "series") == [
         "tt36034547", "2", "2"
     ]
     assert network.call_count == 2
 
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(imdb_season=0, tvdb_season=3))):
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "1"], "series") == [
         "tt36034547", "3", "1"
     ]
 with patch("metdata.tmdb.requests.get", return_value=FakeResponse(mapping(imdb_season=2, tvdb_season=1))):
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "50634", "1"], "series") == [
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "50634", "1"], "series") == [
         "tt36034547", "2", "1"
     ]
 with patch("metdata.tmdb.requests.get") as network:
-    assert tmdb._TMDB__convert_kitsu_to_imdb(["kitsu", "-1", "1"], "series") is None
+    assert tmdb._TMDB__convert_anime_to_imdb(["kitsu", "-1", "1"], "series") is None
     network.assert_not_called()
 
 # Verify t=indexers capability parsing and mode selection, without per-indexer t=caps HTTP calls.
@@ -271,5 +297,5 @@ assert LanguageFilter({"languages": ["ko", "en"], "getAllLanguages": False})(
     [multi_item, single_item]
 ) == [multi_item, single_item]
 
-print("Anime season, request provenance, episode, quality and language tests passed")
+print("Kitsu/MAL anime normalization, season fallback, search provenance and filter tests passed")
 
