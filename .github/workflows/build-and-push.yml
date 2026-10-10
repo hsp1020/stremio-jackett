@@ -8,14 +8,18 @@ on:
 permissions:
   contents: read
 
-# Never interrupt an in-progress production deployment (or its rollback).
+# Separate from the superseded QEMU workflow. The old run will skip deployment
+# when it observes that its commit is no longer main.
+# Never interrupt an in-progress deployment or rollback.
 concurrency:
-  group: stremio-jackett-production
+  group: stremio-jackett-native-build-and-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
+  verify-amd64:
+    name: Verify AMD64 natively
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -27,43 +31,113 @@ jobs:
               compile(file.read_bytes(), str(file), "exec")
           print("All Python files compile")
           PYCODE
-      - name: Smoke-test Docker manifest, configuration page and static assets
-        run: |
-          set -Eeuo pipefail
-          docker build -t stremio-jackett-ci-smoke -f ./source/Dockerfile ./source
-          docker run -d --rm --name stremio-jackett-ci-smoke -p 127.0.0.1:38680:3000 stremio-jackett-ci-smoke
-          trap 'docker rm -f stremio-jackett-ci-smoke >/dev/null 2>&1 || true' EXIT
-          for attempt in {1..15}; do
-            if curl --fail --silent --max-time 3 http://127.0.0.1:38680/manifest.json -o /dev/null; then
-              break
-            fi
-            sleep 2
-          done
-          curl --fail --silent --show-error http://127.0.0.1:38680/manifest.json |
-            python3 -c 'import json,sys; assert "stream" in json.load(sys.stdin).get("resources",[])'
-          curl --fail --silent --show-error http://127.0.0.1:38680/configure |
-            grep -qi '</html>'
-          curl --fail --silent --show-error http://127.0.0.1:38680/static/config.js -o /dev/null
-          docker cp deployment/test-routing.py stremio-jackett-ci-smoke:/tmp/test-routing.py
-          docker exec -e PYTHONPATH=/app stremio-jackett-ci-smoke python /tmp/test-routing.py
-      - name: Enable QEMU emulation
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Verify ARM64 and AMD64 Docker builds
+      - name: Build cached AMD64 Docker image
         uses: docker/build-push-action@v6
         with:
           context: ./source
           file: ./source/Dockerfile
-          platforms: linux/arm64,linux/amd64
+          platforms: linux/amd64
           push: false
+          load: true
           provenance: false
+          tags: stremio-jackett-amd64-test:${{ github.sha }}
+          cache-from: type=gha,scope=stremio-jackett-amd64
+          cache-to: type=gha,scope=stremio-jackett-amd64,mode=max,ignore-error=true
+      - name: Smoke-test AMD64 Addon and full routing regressions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image="stremio-jackett-amd64-test:$GITHUB_SHA"
+          docker run -d --rm --name stremio-jackett-ci-amd64 -p 127.0.0.1:38680:3000 "$image"
+          trap 'docker rm -f stremio-jackett-ci-amd64 >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent --max-time 3 http://127.0.0.1:38680/manifest.json -o /dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:38680/manifest.json |
+            python3 -c 'import json,sys; assert "stream" in json.load(sys.stdin).get("resources",[])'
+          curl --fail --silent --show-error http://127.0.0.1:38680/configure | grep -qi '</html>'
+          curl --fail --silent --show-error http://127.0.0.1:38680/static/config.js -o /dev/null
+          docker cp deployment/test-routing.py stremio-jackett-ci-amd64:/tmp/test-routing.py
+          docker exec -e PYTHONPATH=/app stremio-jackett-ci-amd64 python /tmp/test-routing.py
+
+  build-arm64:
+    name: Build and verify ARM64 natively
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx (native ARM64; no QEMU)
+        uses: docker/setup-buildx-action@v3
+      - name: Build cached ARM64 Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./source
+          file: ./source/Dockerfile
+          platforms: linux/arm64
+          push: false
+          load: true
+          provenance: false
+          tags: stremio-jackett-personal:${{ github.sha }}
+          cache-from: type=gha,scope=stremio-jackett-arm64
+          cache-to: type=gha,scope=stremio-jackett-arm64,mode=max,ignore-error=true
+      - name: Smoke-test ARM64 Addon and full routing regressions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          image="stremio-jackett-personal:$GITHUB_SHA"
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = "arm64"
+          docker run -d --rm --name stremio-jackett-ci-arm64 -p 127.0.0.1:38680:3000 "$image"
+          trap 'docker rm -f stremio-jackett-ci-arm64 >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent --max-time 3 http://127.0.0.1:38680/manifest.json -o /dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:38680/manifest.json |
+            python3 -c 'import json,sys; assert "stream" in json.load(sys.stdin).get("resources",[])'
+          curl --fail --silent --show-error http://127.0.0.1:38680/configure | grep -qi '</html>'
+          curl --fail --silent --show-error http://127.0.0.1:38680/static/config.js -o /dev/null
+          docker cp deployment/test-routing.py stremio-jackett-ci-arm64:/tmp/test-routing.py
+          docker exec -e PYTHONPATH=/app stremio-jackett-ci-arm64 python /tmp/test-routing.py
+      - name: Package verified ARM64 image (no rebuild)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker save "stremio-jackett-personal:$GITHUB_SHA" | gzip -1 > stremio-jackett-arm64.tar.gz
+          test -s stremio-jackett-arm64.tar.gz
+          ls -lh stremio-jackett-arm64.tar.gz
+      - name: Upload verified ARM64 image for deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: stremio-jackett-arm64-image
+          path: stremio-jackett-arm64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
 
   deploy:
-    needs: build
-    runs-on: ubuntu-latest
+    name: Deploy verified ARM64 image (no rebuild)
+    needs: [verify-amd64, build-arm64]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
     steps:
-      - name: Deploy successful build to existing VPS addon
+      - name: Download already-built ARM64 image
+        uses: actions/download-artifact@v4
+        with:
+          name: stremio-jackett-arm64-image
+          path: ./deploy-image
+      - name: Restore ARM64 image without building
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gzip -dc ./deploy-image/stremio-jackett-arm64.tar.gz | docker load
+          image="stremio-jackett-personal:$GITHUB_SHA"
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = "arm64"
+      - name: Transfer image and deploy to VPS with rollback
+        shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.JACKETT_SSH_HOST }}
           DEPLOY_USER: ${{ secrets.JACKETT_SSH_USER }}
@@ -74,7 +148,7 @@ jobs:
           set -Eeuo pipefail
           for variable in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
             if [[ -z "${!variable:-}" ]]; then
-              echo "::error::Missing GitHub Actions secret: ${variable/JACKETT_/JACKETT_} (set JACKETT_SSH_* repository secrets)"
+              echo "::error::Missing GitHub Actions secret: $variable"
               exit 1
             fi
           done
@@ -86,18 +160,43 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" >"$keyfile"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >"$knownfile"
           trap 'rm -f "$keyfile" "$knownfile"' EXIT
-          ssh -p "$port" -i "$keyfile" -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$knownfile" \
-            -o ConnectTimeout=20 -- "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sudo -n bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          ssh_args=(-p "$port" -i "$keyfile" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$knownfile" -o ConnectTimeout=20 -o ServerAliveInterval=30)
+          remote="$DEPLOY_USER@$DEPLOY_HOST"
+
+          # Avoid transferring a large image when another commit has superseded this run.
+          current="$(
+            ssh "${ssh_args[@]}" -- "$remote" "sudo -n bash -s -- '$GITHUB_SHA'" <<'REMOTE'
           set -Eeuo pipefail
           sha="$1"
           repo_dir="/home/ubuntu/stremio-jackett-deploy"
           [[ -d "$repo_dir/.git" ]] || { echo "Deploy checkout not initialized: $repo_dir" >&2; exit 1; }
+          git -c safe.directory="$repo_dir" -C "$repo_dir" fetch --depth 1 origin main >&2
+          fetched="$(git -c safe.directory="$repo_dir" -C "$repo_dir" rev-parse FETCH_HEAD)"
+          if [[ "$fetched" != "$sha" ]]; then
+            printf 'SKIPPED: Superseded by %s\n' "$fetched"
+          else
+            printf 'OK\n'
+          fi
+          REMOTE
+          )"
+          if [[ "$current" != "OK" ]]; then
+            echo "$current"
+            [[ "$current" == SKIPPED:* ]] && exit 0
+            exit 1
+          fi
+
+          image="stremio-jackett-personal:$GITHUB_SHA"
+          echo "Transferring already-verified ARM64 image (no VPS compilation)"
+          docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" -- "$remote" "gzip -dc | sudo -n docker load"
+
+          ssh "${ssh_args[@]}" -- "$remote" "sudo -n bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -Eeuo pipefail
+          sha="$1"
+          repo_dir="/home/ubuntu/stremio-jackett-deploy"
           git -c safe.directory="$repo_dir" -C "$repo_dir" fetch --depth 1 origin main
           fetched="$(git -c safe.directory="$repo_dir" -C "$repo_dir" rev-parse FETCH_HEAD)"
           if [[ "$fetched" != "$sha" ]]; then
-            echo "SKIPPED: A newer commit is now at main; current=$fetched triggered=$sha"
+            echo "SKIPPED: Superseded by $fetched"
             exit 0
           fi
           git -c safe.directory="$repo_dir" -C "$repo_dir" checkout --force --detach "$sha"

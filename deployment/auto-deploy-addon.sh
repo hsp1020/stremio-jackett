@@ -131,9 +131,16 @@ deploy() {
   local sha="$1" image candidate backupdir previous_image had_override=false
   image="${IMAGE_PREFIX}:${sha}"
   candidate="stremio-jackett-canary-$$"
-  log "Building candidate ${image} (no change to current addon)"
+  log "Using verified ARM64 CI image ${image} (no Docker rebuild)"
   git -c safe.directory="$REPO_DIR" -C "$REPO_DIR" checkout --force --detach "$sha" >/dev/null
-  docker build --pull -t "$image" -f "$REPO_DIR/source/Dockerfile" "$REPO_DIR/source"
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    log "ERROR: Prebuilt image $image is missing. Import the verified CI image first."
+    return 1
+  fi
+  if [[ "$(docker image inspect "$image" --format '{{.Architecture}}')" != "arm64" ]]; then
+    log "ERROR: Prebuilt image $image is not ARM64"
+    return 1
+  fi
   log "Starting isolated Docker canary"
   docker run -d --rm --name "$candidate" "$image" >/dev/null
   if ! container_ok "$candidate"; then
