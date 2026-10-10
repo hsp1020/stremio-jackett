@@ -56,7 +56,16 @@ class TorrentService:
             "html_magnets": 0,
             "html_external": 0,
             "http_errors": 0,
+            "prefetch_requests": 0,
+            "prefetch_magnet": 0,
+            "prefetch_http_200": 0,
+            "prefetch_404": 0,
+            "prefetch_other": 0,
+            "prefetch_errors": 0,
+            "prefetch_shared_consumes": 0,
+            "prefetch_followup_get_200": 0,
         }
+        self._prefetch_consumed_urls = set()
 
     def _prefetch_jackett_dl_magnet(self, link):
         """
@@ -83,6 +92,17 @@ class TorrentService:
             status_code = response.status_code
             location = response.headers.get("Location")
             response.close()  # The prefetch only needs headers, never a torrent body.
+            with self._perf_lock:
+                self._perf["prefetch_requests"] += 1
+                if (status_code in (301, 302, 303, 307, 308)
+                        and location and location.startswith("magnet:")):
+                    self._perf["prefetch_magnet"] += 1
+                elif status_code == 200:
+                    self._perf["prefetch_http_200"] += 1
+                elif status_code == 404:
+                    self._perf["prefetch_404"] += 1
+                else:
+                    self._perf["prefetch_other"] += 1
 
             if (
                 status_code in [301, 302, 303, 307, 308]
@@ -103,6 +123,8 @@ class TorrentService:
             return None, status_code
 
         except Exception as e:
+            with self._perf_lock:
+                self._perf["prefetch_errors"] += 1
             self.logger.debug(
                 f"[TorrentPrefetch] failed: {e}"
             )
@@ -131,7 +153,12 @@ class TorrentService:
             ):
                 candidates.append(link)
 
+        candidate_count = len(candidates)
         candidates = list(dict.fromkeys(candidates))
+        self.logger.info(
+            "[PERF][TorrentPrefetch] candidate_items=%s / unique_urls=%s / duplicates=%s",
+            candidate_count, len(candidates), candidate_count - len(candidates)
+        )
 
         if not candidates:
             self.logger.info(
@@ -176,9 +203,16 @@ class TorrentService:
             and "xt=urn:btih:" in str(getattr(r, "magnet", ""))
         )
 
-        http_link_count = sum(
-            1 for r in results
+        http_urls = [
+            str(getattr(r, "link", "") or "")
+            for r in results
             if str(getattr(r, "link", "") or "").startswith(("http://", "https://"))
+        ]
+        http_link_count = len(http_urls)
+
+        self.logger.info(
+            "[PERF][TorrentURL] http_items=%s / unique_urls=%s / duplicate_items=%s",
+            http_link_count, len(set(http_urls)), http_link_count - len(set(http_urls))
         )
 
         self.logger.info(
@@ -239,12 +273,28 @@ class TorrentService:
             f"errors={perf['http_errors']}"
         )
 
+        self.logger.info(
+            "[PERF][PrefetchSummary] requests=%s / magnet=%s / http_200=%s / "
+            "404=%s / other=%s / errors=%s / shared_consumes=%s / "
+            "followup_get_after_200=%s",
+            perf["prefetch_requests"], perf["prefetch_magnet"],
+            perf["prefetch_http_200"], perf["prefetch_404"],
+            perf["prefetch_other"], perf["prefetch_errors"],
+            perf["prefetch_shared_consumes"], perf["prefetch_followup_get_200"]
+        )
+
         if self._prefetch_executor is not None:
             self._prefetch_executor.shutdown(
                 wait=False,
                 cancel_futures=True
             )
             self._prefetch_executor = None
+
+        # Prefetch is strictly request-scoped; no cached HTTP results
+        # survive to the next Jackett search.
+        with self._prefetch_lock:
+            self._prefetch_futures.clear()
+            self._prefetch_consumed_urls.clear()
 
         return torrent_items_result
 
@@ -298,12 +348,18 @@ class TorrentService:
         current_url = result.link
 
         prefetch_future = None
+        prefetched_status = None
 
+        # Reuse the same completed or running prefetch for every item with
+        # this URL; pop() previously forced later items to re-request it.
         with self._prefetch_lock:
-            prefetch_future = self._prefetch_futures.pop(
-                current_url,
-                None
-            )
+            prefetch_future = self._prefetch_futures.get(current_url)
+            if prefetch_future is not None:
+                if current_url in self._prefetch_consumed_urls:
+                    with self._perf_lock:
+                        self._perf["prefetch_shared_consumes"] += 1
+                else:
+                    self._prefetch_consumed_urls.add(current_url)
 
         if prefetch_future is not None:
             wait_start = time.perf_counter()
@@ -358,6 +414,9 @@ class TorrentService:
                     break
                 try:
                     perf_http_start = time.perf_counter()
+                    if prefetched_status == 200 and current_url == result.link:
+                        with self._perf_lock:
+                            self._perf["prefetch_followup_get_200"] += 1
                     response = session.get(
                         current_url, allow_redirects=False,
                         timeout=REQUEST_TIMEOUT, stream=True,

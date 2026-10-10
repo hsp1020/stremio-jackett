@@ -82,6 +82,43 @@ class JackettService:
         self.__api_key = config['jackettApiKey']
         self.__base_url = f"{config['jackettHost']}/api/v2.0"
         self.__session = requests.Session()
+        self._metrics_lock = threading.Lock()
+        self._metrics = {
+            "search_http_requests": 0,
+            "search_http_errors": 0,
+            "search_http_non_2xx": 0,
+            "search_http_seconds": 0.0,
+            "search_http_max_seconds": 0.0,
+            "xml_documents": 0,
+            "xml_items": 0,
+            "xml_bytes": 0,
+            "xml_seconds": 0.0,
+            "xml_max_seconds": 0.0,
+        }
+
+    def _search_torznab_request(self, url, params):
+        started = time.perf_counter()
+        with self._metrics_lock:
+            self._metrics["search_http_requests"] += 1
+        try:
+            response = self.__session.get(
+                url, params=params, timeout=self.HTTP_TIMEOUT,
+            )
+            if getattr(response, 'status_code', 200) >= 400:
+                with self._metrics_lock:
+                    self._metrics["search_http_non_2xx"] += 1
+            return response
+        except requests.RequestException:
+            with self._metrics_lock:
+                self._metrics["search_http_errors"] += 1
+            raise
+        finally:
+            elapsed = time.perf_counter() - started
+            with self._metrics_lock:
+                self._metrics["search_http_seconds"] += elapsed
+                self._metrics["search_http_max_seconds"] = max(
+                    self._metrics["search_http_max_seconds"], elapsed
+                )
 
     def _get_indexer_policy(self, indexer):
         return {
@@ -290,6 +327,22 @@ class JackettService:
             f"{perf_post_done - perf_collect_start:.3f}s"
         )
 
+        # Snapshot at SmartWait return: slow background indexer threads may
+        # still run, so these are counts observed by response assembly time.
+        with self._metrics_lock:
+            metrics = dict(self._metrics)
+        self.logger.info(
+            "[PERF][JackettHTTP] at_return_requests=%s / errors=%s / "
+            "non_2xx=%s / summed_http_s=%.3f / max_http_s=%.3f / "
+            "xml_documents=%s / xml_items=%s / xml_bytes=%s / "
+            "xml_parse_s=%.3f / xml_max_s=%.3f",
+            metrics["search_http_requests"], metrics["search_http_errors"],
+            metrics["search_http_non_2xx"], metrics["search_http_seconds"],
+            metrics["search_http_max_seconds"], metrics["xml_documents"],
+            metrics["xml_items"], metrics["xml_bytes"],
+            metrics["xml_seconds"], metrics["xml_max_seconds"],
+        )
+
         return processed
 
     def __execute_search_tasks(
@@ -420,9 +473,7 @@ class JackettService:
         def search_with_params(params_dict, search_type):
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
-                response = self.__session.get(
-                    url, params=params_dict, timeout=self.HTTP_TIMEOUT,
-                )
+                response = self._search_torznab_request(url, params_dict)
                 self.logger.debug(f"[Jackett][Movie][{search_type}] URL: {response.request.url}")
                 response.raise_for_status()
                 return self.__get_torrent_links_from_xml(response.text)
@@ -572,9 +623,7 @@ class JackettService:
         def search_pattern(params_dict, pattern_name):
             try:
                 url = f"{self.__base_url}/indexers/{indexer.id}/results/torznab/api"
-                response = self.__session.get(
-                    url, params=params_dict, timeout=self.HTTP_TIMEOUT,
-                )
+                response = self._search_torznab_request(url, params_dict)
                 self.logger.debug(f"[Jackett][Series][{pattern_name}] URL: {response.request.url}")
                 response.raise_for_status()
                 return self.__get_torrent_links_from_xml(response.text)
@@ -741,7 +790,12 @@ class JackettService:
         )
 
     def get_indexers(self):
+        started = time.perf_counter()
         if self._indexers is not None:
+            self.logger.info(
+                "[PERF][IndexerCaps] cache_hit=true / lookup_ms=%.1f",
+                (time.perf_counter() - started) * 1000,
+            )
             return self._indexers
 
         cache_key = (self.__base_url, self.__api_key)
@@ -750,6 +804,10 @@ class JackettService:
             cached = self._indexer_cache.get(cache_key)
             if cached and cached[0] > time.monotonic():
                 self._indexers = cached[1]
+                self.logger.info(
+                    "[PERF][IndexerCaps] cache_hit=true / lookup_ms=%.1f",
+                    (time.perf_counter() - started) * 1000,
+                )
                 return self._indexers
 
             self.logger.info("Indexer cache miss. Requesting API...")
@@ -766,6 +824,10 @@ class JackettService:
                 response.raise_for_status()
                 indexers = self.__get_indexer_from_xml(response.text)
             except Exception as e:
+                self.logger.info(
+                    "[PERF][IndexerCaps] cache_hit=false / failed=true / lookup_ms=%.1f",
+                    (time.perf_counter() - started) * 1000,
+                )
                 self.logger.error("Failed to get indexer list: %s", type(e).__name__)
                 return []
 
@@ -776,6 +838,10 @@ class JackettService:
                 time.monotonic() + self.INDEXER_CACHE_TTL, indexers,
             )
             self.logger.info("Cached %s indexers for %ss", len(indexers), self.INDEXER_CACHE_TTL)
+            self.logger.info(
+                "[PERF][IndexerCaps] cache_hit=false / lookup_ms=%.1f / indexers=%s",
+                (time.perf_counter() - started) * 1000, len(indexers),
+            )
             return indexers
 
     def __get_indexer_from_xml(self, xml_content):
@@ -832,6 +898,7 @@ class JackettService:
         return indexer_list
 
     def __get_torrent_links_from_xml(self, xml_content):
+        parse_started = time.perf_counter()
         xml_root = ET.fromstring(xml_content)
         result_list = []
         namespace = {'torznab': 'http://torznab.com/schemas/2015/feed'}
@@ -872,6 +939,15 @@ class JackettService:
             except (AttributeError, KeyError, TypeError, ValueError) as exc:
                 self.logger.warning("Skipping malformed Torznab result: %s", exc)
 
+        elapsed = time.perf_counter() - parse_started
+        with self._metrics_lock:
+            self._metrics["xml_documents"] += 1
+            self._metrics["xml_items"] += len(result_list)
+            self._metrics["xml_bytes"] += len(xml_content)
+            self._metrics["xml_seconds"] += elapsed
+            self._metrics["xml_max_seconds"] = max(
+                self._metrics["xml_max_seconds"], elapsed
+            )
         return result_list
 
     def __post_process_results(self, results, media):
