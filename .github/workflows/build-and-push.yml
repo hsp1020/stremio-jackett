@@ -1,4 +1,4 @@
-name: Verify Stremio Jackett Docker
+name: Verify and Deploy Stremio Jackett
 
 on:
   push:
@@ -8,9 +8,10 @@ on:
 permissions:
   contents: read
 
+# Never interrupt an in-progress production deployment (or its rollback).
 concurrency:
-  group: stremio-jackett-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: stremio-jackett-production
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -30,7 +31,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build ARM64 and AMD64 images (verify only)
+      - name: Verify ARM64 and AMD64 Docker builds
         uses: docker/build-push-action@v6
         with:
           context: ./source
@@ -38,3 +39,48 @@ jobs:
           platforms: linux/arm64,linux/amd64
           push: false
           provenance: false
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy successful build to existing VPS addon
+        env:
+          DEPLOY_HOST: ${{ secrets.JACKETT_SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.JACKETT_SSH_USER }}
+          DEPLOY_KEY: ${{ secrets.JACKETT_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.JACKETT_SSH_KNOWN_HOSTS }}
+          DEPLOY_PORT: ${{ secrets.JACKETT_SSH_PORT }}
+        run: |
+          set -Eeuo pipefail
+          for variable in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Missing GitHub Actions secret: ${variable/JACKETT_/JACKETT_} (set JACKETT_SSH_* repository secrets)"
+              exit 1
+            fi
+          done
+          port="${DEPLOY_PORT:-22}"
+          [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]] || { echo "::error::Invalid JACKETT_SSH_PORT"; exit 1; }
+          umask 077
+          keyfile="$RUNNER_TEMP/stremio-jackett-deploy-key"
+          knownfile="$RUNNER_TEMP/stremio-jackett-known-hosts"
+          printf '%s\n' "$DEPLOY_KEY" >"$keyfile"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >"$knownfile"
+          trap 'rm -f "$keyfile" "$knownfile"' EXIT
+          ssh -p "$port" -i "$keyfile" -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$knownfile" \
+            -o ConnectTimeout=20 -- "$DEPLOY_USER@$DEPLOY_HOST" \
+            "sudo -n bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -Eeuo pipefail
+          sha="$1"
+          repo_dir="/home/ubuntu/stremio-jackett-deploy"
+          [[ -d "$repo_dir/.git" ]] || { echo "Deploy checkout not initialized: $repo_dir" >&2; exit 1; }
+          git -c safe.directory="$repo_dir" -C "$repo_dir" fetch --depth 1 origin main
+          fetched="$(git -c safe.directory="$repo_dir" -C "$repo_dir" rev-parse FETCH_HEAD)"
+          if [[ "$fetched" != "$sha" ]]; then
+            echo "SKIPPED: A newer commit is now at main; current=$fetched triggered=$sha"
+            exit 0
+          fi
+          git -c safe.directory="$repo_dir" -C "$repo_dir" checkout --force --detach "$sha"
+          exec bash "$repo_dir/deployment/auto-deploy-addon.sh" --deploy-sha "$sha"
+          REMOTE

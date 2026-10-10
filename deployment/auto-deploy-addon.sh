@@ -13,17 +13,17 @@ LOCK_FILE="${STATE_DIR}/lock"
 SERVICE="addon"
 PROJECT="addon"
 IMAGE_PREFIX="stremio-jackett-personal"
-MODE="${1:---poll}"
+MODE="${1:-}"
 mkdir -p "$STATE_DIR"
 exec 9>"$LOCK_FILE"
-flock -n 9 || { echo "Deployment check already running"; exit 0; }
+flock -w 900 9 || { echo "Another deployment is running; lock timeout" >&2; exit 1; }
 
 log() { printf '[%s] %s\n' "$(date -Is)" "$*"; }
 compose() {
   if [[ -f "$OVERRIDE_FILE" ]]; then
-    docker compose -p "$PROJECT" -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" "$@"
+    docker compose --project-directory "$COMPOSE_DIR" -p "$PROJECT" -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" "$@"
   else
-    docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
+    docker compose --project-directory "$COMPOSE_DIR" -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
   fi
 }
 assert_current_stack() {
@@ -50,7 +50,23 @@ PY
   # Validate effective Compose before we touch anything. Never print env secrets.
   local effective
   effective="$(compose config --format json)" || return 1
-  python3 -c 'import sys,json; data=json.load(sys.stdin); assert "addon" in data["services"]' <<<"$effective"
+  python3 -c 'import json,sys
+data=json.load(sys.stdin)
+service=data["services"]["addon"]
+labels=service.get("labels",{})
+if isinstance(labels,list):
+    labels=dict(row.split("=",1) for row in labels)
+required={
+    "traefik.http.routers.addon.rule":"Host(`hsp99.duckdns.org`)",
+    "traefik.docker.network":"traefik_default",
+    "traefik.http.services.addon.loadbalancer.server.port":"3000",
+}
+for k,v in required.items():
+    assert str(labels.get(k))==v, f"Original Compose missing required Traefik label: {k}"
+networks=service.get("networks",{})
+assert "traefik_default" in networks, "Original Compose missing traefik_default network"
+print("Compose routing and network match required production settings")
+' <<<"$effective"
 }
 latest_commit() {
   if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -141,20 +157,35 @@ deploy() {
 }
 
 case "$MODE" in
-  --poll|--deploy-now) ;;
-  *) echo 'Usage: auto-deploy-addon.sh [--poll|--deploy-now]' >&2; exit 2 ;;
+  --deploy-sha)
+    [[ $# -eq 2 && "${2:-}" =~ ^[0-9a-f]{40}$ ]] || { echo 'Usage: --deploy-sha FULL_40_CHAR_COMMIT_SHA' >&2; exit 2; }
+    sha="$2"
+    ;;
+  --deploy-now)
+    [[ $# -eq 1 ]] || { echo 'Usage: --deploy-now' >&2; exit 2; }
+    ;;
+  *)
+    echo 'Usage: auto-deploy-addon.sh --deploy-sha FULL_40_CHAR_COMMIT_SHA | --deploy-now' >&2
+    exit 2
+    ;;
 esac
 assert_current_stack
-sha="$(latest_commit)"
-if [[ "$MODE" == --poll && ! -f "$LAST_FILE" ]]; then
-  log 'Not armed. Run --deploy-now once after initial review and GitHub Actions success.'
-  exit 0
+head_sha="$(latest_commit)"
+if [[ "$MODE" == --deploy-sha ]]; then
+  if [[ "$sha" != "$head_sha" ]]; then
+    log "SKIPPED: $sha has been superseded by main $head_sha; do not deploy an outdated commit"
+    exit 0
+  fi
+  # GitHub Actions invokes this mode ONLY after the dependent Docker build job succeeds.
+else
+  sha="$head_sha"
+  if ! ci_success "$sha"; then
+    log "ERROR: No completed successful GitHub Actions build for $sha"
+    exit 1
+  fi
 fi
-if [[ "$MODE" == --poll && "$(cat "$LAST_FILE")" == "$sha" ]]; then
-  log 'No new commit'; exit 0
-fi
-if ! ci_success "$sha"; then
-  log "GitHub Actions has not succeeded for ${sha}. No deployment."
+if [[ -f "$LAST_FILE" && "$(cat "$LAST_FILE")" == "$sha" ]]; then
+  log "Already deployed $sha"
   exit 0
 fi
 deploy "$sha"
