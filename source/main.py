@@ -28,7 +28,9 @@ from utils.filter_results import (
     filter_items,
     start_rtn_prewarm,
     shutdown_rtn_prewarm,
+    sort_items,
 )
+from utils.filter.results_per_quality_filter import ResultsPerQualityFilter
 from utils.logger import setup_logger
 from utils.parse_config import parse_config
 from utils.stremio_parser import parse_to_stremio_streams
@@ -271,7 +273,9 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
 
     perf_getitems_start = time.perf_counter()
 
-    results = torrent_smart_container.get_items()
+    results = sort_items(torrent_smart_container.get_items(), config)
+    # Re-apply across cached and live results so the per-quality limit is global.
+    results = ResultsPerQualityFilter(config)(results)
 
     logger.info(
         f"[PERF] SmartContainer get_items: "

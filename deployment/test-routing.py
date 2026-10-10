@@ -299,3 +299,144 @@ assert LanguageFilter({"languages": ["ko", "en"], "getAllLanguages": False})(
 
 print("Kitsu/MAL anime normalization, season fallback, search provenance and filter tests passed")
 
+# Phase 1+2 regression checks: malformed feeds, filtering, priorities and order.
+from utils.filter.title_exclusion_filter import TitleExclusionFilter
+from utils.filter.max_size_filter import MaxSizeFilter
+from utils.filter.results_per_quality_filter import ResultsPerQualityFilter
+from utils.filter_results import sort_items
+from utils.stremio_parser import parse_to_stremio_streams
+
+excluded = SimpleNamespace(raw_title="Movie.2026.CAM.WEB", size="1024")
+kept = SimpleNamespace(raw_title="Movie.2026.WEB", size="1024")
+assert TitleExclusionFilter({"exclusionKeywords": ["cam"]})([excluded, kept]) == [kept]
+
+gib = 1024 ** 3
+size_items = [
+    SimpleNamespace(size=str(gib)),
+    SimpleNamespace(size=str(2 * gib)),
+    SimpleNamespace(size="0"),
+]
+assert MaxSizeFilter({"maxSize": "1.5"}, "movie")(size_items) == [
+    size_items[0], size_items[2]
+]
+assert MaxSizeFilter({"maxSize": "1.5"}, "series")(size_items) == size_items
+
+broken_indexers = """
+<indexers>
+  <indexer id="broken"><title>Missing language</title></indexer>
+  <indexer id="ok"><title>Working</title><language>en</language>
+    <caps><searching><search available="yes" supportedParams="q"/></searching></caps>
+  </indexer>
+</indexers>"""
+parsed_indexers = service._JackettService__get_indexer_from_xml(broken_indexers)
+assert len(parsed_indexers) == 1 and parsed_indexers[0].id == "ok"
+broken_feed = """
+<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+  <item><title>Bad seeds</title><size>99</size>
+    <torznab:attr name="seeders" value="not-a-number" /></item>
+  <item><title>Negative seeds</title><size>99</size>
+    <torznab:attr name="seeders" value="-1" /></item>
+  <item><title>Good</title><size>1000</size>
+    <torznab:attr name="seeders" value="40" /></item>
+</channel></rss>"""
+feed = service._JackettService__get_torrent_links_from_xml(broken_feed)
+assert [item.raw_title for item in feed] == ["Bad seeds", "Good"]
+assert [item.seeders for item in feed] == ["0", "40"]
+
+def ranked(title, resolution, size, seeders):
+    return SimpleNamespace(
+        raw_title=title, size=str(size), seeders=str(seeders),
+        parsed_data=SimpleNamespace(resolution=resolution),
+    )
+
+candidates = [
+    ranked("small-low", "1080p", 100, 1),
+    ranked("large-high", "1080p", 400, 40),
+    ranked("medium-mid", "1080p", 200, 20),
+    ranked("other", "720p", 150, 5),
+]
+limiter = ResultsPerQualityFilter({"resultsPerQuality": "2"})
+assert [i.raw_title for i in limiter(sort_items(candidates, {
+    "sort": "sizedesc", "resultsPerQuality": "2"
+}))] == ["large-high", "medium-mid", "other"]
+assert [i.raw_title for i in limiter(sort_items(candidates, {
+    "sort": "seedsdesc", "resultsPerQuality": "2"
+}))] == ["large-high", "medium-mid", "other"]
+assert [i.raw_title for i in limiter(sort_items(candidates, {
+    "sort": "sizeasc", "resultsPerQuality": "2"
+}))] == ["small-low", "other", "medium-mid"]
+assert [i.raw_title for i in limiter(sort_items(candidates, {
+    "sort": None, "resultsPerQuality": "2"
+}))] == ["large-high", "medium-mid", "other"]
+assert [i.raw_title for i in sort_items(candidates, {
+    "sort": "quality", "resultsPerQuality": "0"
+})] == ["small-low", "large-high", "medium-mid", "other"]
+assert [i.raw_title for i in sort_items(candidates, {
+    "sort": "qualitythensize", "resultsPerQuality": "0"
+})] == ["large-high", "medium-mid", "small-low", "other"]
+
+def stream_item(name, cached):
+    return SimpleNamespace(
+        raw_title=name, size=str(gib), seeders="10", indexer="Mock",
+        info_hash=name, file_name=None, file_index=1, privacy="public",
+        languages=["en"], availability=cached,
+        parsed_data=SimpleNamespace(
+            codec=None, audio=[], quality="WEB-DL", resolution="1080p"
+        ),
+        to_debrid_stream_query=lambda media: {
+            "magnet": "magnet:?xt=urn:btih:ABCDEF",
+            "type": media.type, "file_index": 1, "season": None,
+            "episode": None, "torrent_download": None,
+        },
+    )
+
+encoded_config = {
+    "maxResults": "2", "addonHost": "https://example.invalid",
+    "debrid": True, "torrenting": True,
+}
+formatted = parse_to_stremio_streams(
+    [stream_item("First", False), stream_item("Second", True)],
+    encoded_config, Movie("tt12345", ["Movie"], "2026", ["en"])
+)
+assert len(formatted) == 4
+assert [row["description"].split("\n")[0] for row in formatted] == [
+    "Second", "First", "First", "Second"
+]
+assert all(("url" in row) != ("infoHash" in row) for row in formatted)
+print("Phase 1+2 filtering, Torznab, ranking, cap and formatter regressions passed")
+
+# Exercise filter_items through its real stage sequence without network/RTN reparsing.
+from utils.filter_results import filter_items
+
+def filtered_candidate(title, resolution, seeders, size):
+    item = JackettResult()
+    item.raw_title = title
+    item.size = str(size)
+    item.seeders = str(seeders)
+    item.languages = ["en"]
+    item.info_hash = title
+    item.imdb_id_search = True
+    item.parsed_data = SimpleNamespace(
+        raw_title=title, type="movie", resolution=resolution, quality="WEB-DL"
+    )
+    return item
+
+phase_config = {
+    "languages": ["en"], "getAllLanguages": False,
+    "maxSize": "2", "exclusionKeywords": ["BLOCK"],
+    "exclusion": [], "resultsPerQuality": "1", "sort": "seedsdesc",
+}
+phase_inputs = [
+    filtered_candidate("Movie 2026 1080p low", "1080p", 1, gib),
+    filtered_candidate("Movie 2026 1080p best", "1080p", 60, gib),
+    filtered_candidate("Movie 2026 BLOCK", "1080p", 999, gib),
+    filtered_candidate("Movie 2026 1080p oversized", "1080p", 888, 3 * gib),
+    filtered_candidate("Movie 2026 720p", "720p", 5, gib),
+]
+phase_result = filter_items(
+    phase_inputs, Movie("tt12345", ["Movie"], "2026", ["en"]), phase_config
+)
+assert [item.raw_title for item in phase_result] == [
+    "Movie 2026 1080p best", "Movie 2026 720p"
+]
+print("Phase 1+2 integrated filter sequence passed")
