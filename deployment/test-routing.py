@@ -471,7 +471,8 @@ def make_torrent_item(kind):
     return TorrentItem(
         "Example", "0", "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
         None, "http://localhost/dl/test", "5", ["en"], "Indexer", "public",
-        kind, SimpleNamespace(seasons=[2], episodes=[4]),
+        kind, SimpleNamespace(seasons=[2], episodes=[4], codec=None, audio=[],
+                              quality="WEB-DL", resolution="1080p"),
     )
 
 def torrent_bytes(file_entries=None, name="Movie.mkv"):
