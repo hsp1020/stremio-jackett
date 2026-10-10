@@ -96,9 +96,9 @@ class TMDB(MetadataProvider):
             return full_id
 
     ANIME_MAPPING_HOSTS = (
-        "aiostreamsfortheweebsstable.midnightignite.me",
         "aiostreams.elfhosted.com",
         "aiostreams.fortheweak.cloud",
+        "aiostreamsfortheweebsstable.midnightignite.me",
         "aio.atbphosting.com",
         "aiostreams.stremio.ru",
         "aiostreams.viren070.me",
