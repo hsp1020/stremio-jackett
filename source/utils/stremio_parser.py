@@ -82,7 +82,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             }
         })
 
-    if torrenting and torrent_item.privacy == "public":
+    if torrenting and torrent_item.privacy == "public" and not getattr(torrent_item, 'direct_file_missing', False):
         name = f"{DIRECT_TORRENT}\n"
         if parsed_data.quality and parsed_data.quality != "Unknown" and \
                 parsed_data.quality != "":
@@ -92,7 +92,7 @@ def parse_to_debrid_stream(torrent_item: TorrentItem, configb64, host, torrentin
             "name": name,
             "description": title,
             "infoHash": torrent_item.info_hash,
-            "fileIdx": int(torrent_item.file_index) if torrent_item.file_index else None,
+            "fileIdx": getattr(torrent_item, "direct_file_index", None),
             "behaviorHints":{
                 "bingeGroup": f"stremio-jackett-{torrent_item.info_hash}",
                 "filename": torrent_item.file_name if torrent_item.file_name is not None else torrent_item.raw_title
