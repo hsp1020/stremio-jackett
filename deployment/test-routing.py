@@ -404,3 +404,39 @@ assert [row["description"].split("\n")[0] for row in formatted] == [
 ]
 assert all(("url" in row) != ("infoHash" in row) for row in formatted)
 print("Phase 1+2 filtering, Torznab, ranking, cap and formatter regressions passed")
+
+# Exercise filter_items through its real stage sequence without network/RTN reparsing.
+from utils.filter_results import filter_items
+
+def filtered_candidate(title, resolution, seeders, size):
+    item = JackettResult()
+    item.raw_title = title
+    item.size = str(size)
+    item.seeders = str(seeders)
+    item.languages = ["en"]
+    item.info_hash = title
+    item.imdb_id_search = True
+    item.parsed_data = SimpleNamespace(
+        raw_title=title, type="movie", resolution=resolution, quality="WEB-DL"
+    )
+    return item
+
+phase_config = {
+    "languages": ["en"], "getAllLanguages": False,
+    "maxSize": "2", "exclusionKeywords": ["BLOCK"],
+    "exclusion": [], "resultsPerQuality": "1", "sort": "seedsdesc",
+}
+phase_inputs = [
+    filtered_candidate("Movie 2026 1080p low", "1080p", 1, gib),
+    filtered_candidate("Movie 2026 1080p best", "1080p", 60, gib),
+    filtered_candidate("Movie 2026 BLOCK", "1080p", 999, gib),
+    filtered_candidate("Movie 2026 1080p oversized", "1080p", 888, 3 * gib),
+    filtered_candidate("Movie 2026 720p", "720p", 5, gib),
+]
+phase_result = filter_items(
+    phase_inputs, Movie("tt12345", ["Movie"], "2026", ["en"]), phase_config
+)
+assert [item.raw_title for item in phase_result] == [
+    "Movie 2026 1080p best", "Movie 2026 720p"
+]
+print("Phase 1+2 integrated filter sequence passed")
