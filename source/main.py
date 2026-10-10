@@ -123,7 +123,7 @@ formatter = logging.Formatter('[%(asctime)s] p%(process)s {%(pathname)s:%(lineno
 logger.info("Started Jackett Addon")
 
 @app.get("/{config}/stream/{stream_type}/{stream_id}")
-async def get_results(config: str, stream_type: str, stream_id: str, request: Request):
+def get_results(config: str, stream_type: str, stream_id: str, request: Request):
     logger.info(f"==== NEW REQUEST ARRIVED: {stream_type} | ID: {stream_id} ====")
     jackett_service = None
     start = time.time()
@@ -339,7 +339,7 @@ async def get_results(config: str, stream_type: str, stream_id: str, request: Re
     return {"streams": stream_list}
 
 @app.api_route("/playback/{config}/{query}", methods=["GET", "HEAD"])
-async def get_playback(config: str, query: str, request: Request):
+def get_playback(config: str, query: str, request: Request):
     try:
         if not query:
             raise HTTPException(status_code=400, detail="Query required.")
@@ -356,7 +356,8 @@ async def get_playback(config: str, query: str, request: Request):
         link = debrid_service.get_stream_link(query, ip)
 
         logger.debug("Playback link resolved")
-        return RedirectResponse(url=link, status_code=status.HTTP_301_MOVED_PERMANENTLY)
+        return RedirectResponse(url=link, status_code=status.HTTP_302_FOUND,
+                                headers={"Cache-Control": "no-store"})
 
     except Exception as e:
         logger.error(f"An error occurred in playback: {e}")
