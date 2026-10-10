@@ -613,8 +613,9 @@ with patch("jackett.jackett_service.requests.Session.get", return_value=IndexerR
 JackettService._indexer_cache.clear()
 
 # FastAPI blocking endpoints must run via the framework's threadpool.
-from main import get_results, get_playback
-assert not inspect.iscoroutinefunction(get_results)
+from main import get_results, get_playback, _get_results_sync
+assert inspect.iscoroutinefunction(get_results)
+assert not inspect.iscoroutinefunction(_get_results_sync)
 assert not inspect.iscoroutinefunction(get_playback)
 with patch("main.parse_config", return_value={"service": "realdebrid"}), \
      patch("main.decodeb64", return_value='{}'), \
