@@ -10,13 +10,11 @@ video_formats = {".mkv", ".mp4", ".avi", ".mov", ".flv", ".wmv", ".webm", ".mpg"
                  ".amv", ".m4p", ".m4v", ".mpg", ".mp2", ".mpeg", ".mpe", ".mpv", ".mpg", ".mpeg", ".m2v", ".m4v",
                  ".svi", ".3gp", ".3g2", ".mxf", ".roq", ".nsv", ".flv", ".f4v", ".f4p", ".f4a", ".f4b"}
 
-
 def season_episode_in_filename(filename, season, episode):
     if not is_video_file(filename):
         return False
     parsed_name = parse(filename)
     return int(season.replace("S", "")) in parsed_name.seasons and int(episode.replace("E", "")) in parsed_name.episodes
-
 
 def get_info_hash_from_magnet(magnet: str):
     exact_topic_index = magnet.find("xt=")

@@ -76,6 +76,6 @@ def cache_results(torrents: List[TorrentItem], media):
             logger.info(f"Cached {str(len(cache_items))} {media.type} results")
         else:
             logger.error(f"Failed to cache {media.type} results: {str(response)}")
-    except Exception as e:
-        logger.error(f"Failed to cache results: {e}")
+    except:
+        logger.error("Failed to cache results")
         pass

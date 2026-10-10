@@ -2,107 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <title>Stremio-Jackett {% if isCommunityVersion %}Community{% endif %}</title>
     <style>
+        /*On va ajouter la photo de fond */
         body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #1a1c2c 0%, #4a192c 100%), url('https://i.ibb.co/WGTw4bV/stremio-bg.png') no-repeat center center fixed;
-            background-blend-mode: overlay;
+            background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('https://i.ibb.co/WGTw4bV/stremio-bg.png') no-repeat fixed;
             background-size: cover;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             margin: 0;
-            padding: 2rem 0;
-            color: #e2e8f0;
+            padding: 0;
         }
 
-        .glass-container {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        }
-
-        .input-field {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #fff;
-            transition: all 0.3s ease;
-        }
-
-        .input-field:focus {
-            background: rgba(15, 23, 42, 0.8);
-            border-color: #6366f1;
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
-            outline: none;
-        }
-
-        .section-title {
-            position: relative;
-            padding-bottom: 0.5rem;
-            margin-bottom: 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .section-title::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            width: 50px;
-            height: 2px;
-            background: #6366f1;
-        }
-
-        /* Checkbox Styling */
-        .custom-checkbox input:checked + div {
-            background-color: #4f46e5;
-            border-color: #4f46e5;
-        }
-        
-        .custom-checkbox input:checked + div svg {
-            display: block;
-        }
-
-        .btn-primary {
-            background: linear-gradient(to right, #4f46e5, #6366f1);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
-        }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.6); 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #475569; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #64748b; 
+        img {
+            width: 100px;
+            height: 100px;
+            text-align: center;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .multipleSelection {
-            width: 100%;
+            width: 150px;
         }
 
         .selectBox {
             position: relative;
-            cursor: pointer;
         }
+
 
         .overSelect {
             position: absolute;
@@ -114,350 +40,494 @@
 
         #languageCheckBoxes {
             display: none;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 0.5rem;
-            border-radius: 0.5rem;
-            background: rgba(15, 23, 42, 0.95);
-            position: absolute;
-            z-index: 10;
-            width: 100%;
         }
 
         #languageCheckBoxes label {
             display: block;
-            padding: 0.5rem 1rem;
-            cursor: pointer;
-            transition: background 0.2s;
         }
 
-        #languageCheckBoxes label:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
     </style>
 </head>
-<body>
-
-<div class="glass-container w-11/12 md:w-3/4 lg:w-1/2 xl:w-1/3 rounded-2xl p-8 md:p-12 my-8">
-    <div class="flex flex-col items-center mb-8">
+<body class="backdrop-blur">
+<div id="container" style="display: flex;justify-content: center;align-items: center;">
+    <form style="padding: 2rem;border-radius: 1rem" class="bg-opacity-70 bg-white dark:bg-opacity-90 dark:bg-gray-900 w-1/3 m-12">
         <img src="https://user-images.githubusercontent.com/27040483/28728094-99f3e3f6-73c7-11e7-8f8d-28912dc6ac0d.png"
-             alt="logo" class="w-24 h-24 mb-4 drop-shadow-lg animate-bounce-slow">
-        <h1 class="text-3xl font-bold text-white text-center mb-2">Stremio-Jackett</h1>
-        <p class="text-indigo-200 text-sm font-medium">
-            {% if isCommunityVersion %}Community Edition{% else %}Standard Edition{% endif %} v{{ version }}
-        </p>
-        {% if sponsorMessage %}
-        <div class="mt-4 p-3 bg-indigo-900/30 rounded-lg border border-indigo-500/30 text-center text-sm text-indigo-200">
-            {{ sponsorMessage | safe }}
-        </div>
-        {% endif %}
-    </div>
+             alt="logo" style="width: 100px; height: 100px;">
+        <div class="space-y-12">
+            <p class="dark:text-white text-center">Stremio-Jackett{% if isCommunityVersion %} Community{% endif %}
+                v{{ version }}</p>
+            <p class="dark:text-white text-center">{% if sponsorMessage %}{{ sponsorMessage | safe }}{% endif %}</p>
+            <h1 class="text-base font-semibold leading-7 text-gray-900 dark:text-white"
+                style="text-align: center;font-size: 2rem;">
+                Addon configuration</h1>
 
-    <form class="space-y-8" onsubmit="return false;">
-        
-        <!-- Streaming Section -->
-        <div>
-            <h2 class="text-xl font-semibold text-white section-title">Streaming Configuration</h2>
-            <div class="space-y-4">
-                <div class="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Streaming</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter information
+                    about streaming here</p>
+                <br>
+                <div class="relative flex gap-x-3">
                     <div class="flex h-6 items-center">
                         <input id="debrid" name="debrid" value="debrid" type="checkbox"
-                               class="w-5 h-5 rounded border-gray-600 text-indigo-600 focus:ring-indigo-600 bg-gray-700" checked
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600" checked
                                oninput="updateProviderFields(true)">
                     </div>
-                    <div>
-                        <label for="debrid" class="font-medium text-white cursor-pointer">Enable Debrid Service</label>
-                        <p class="text-sm text-gray-400">Enable for high-speed secure streaming via Real-Debrid, AllDebrid, etc.</p>
+                    <div class="text-sm leading-6">
+                        <label for="debrid" class="block text-sm font-medium mb-2 dark:text-white">Enable debrid
+                            service</label>
+                        <p class="text-gray-500 dark:text-gray-300">Enable debrid service for faster streaming</p>
                     </div>
                 </div>
-
-                <div class="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
+                <div class="mt-10 relative flex gap-x-3">
                     <div class="flex h-6 items-center">
                         <input id="torrenting" name="torrenting" value="torrenting" type="checkbox"
-                               class="w-5 h-5 rounded border-gray-600 text-indigo-600 focus:ring-indigo-600 bg-gray-700"
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
                                oninput="updateProviderFields(true)">
                     </div>
-                    <div>
-                        <label for="torrenting" class="font-medium text-white cursor-pointer">Enable Direct Torrenting</label>
-                        <p class="text-sm text-gray-400">Stream directly via P2P <span class="text-red-400 text-xs font-bold uppercase ml-1">(Caution: IP Exposed)</span></p>
+                    <div class="text-sm leading-6">
+                        <label for="torrenting" class="block text-sm font-medium mb-2 dark:text-white">Enable
+                            torrenting</label>
+                        <p class="text-gray-500 dark:text-gray-300"><span
+                                class="font-bold text-red-600 dark:text-red-500">(ATTENTION: this is illegal in some
+                            countries)</span></p>
                     </div>
                 </div>
             </div>
-        </div>
 
-        {% if not isCommunityVersion %}
-        <!-- Providers Section -->
-        <div>
-            <h2 class="text-xl font-semibold text-white section-title">Torrent Providers</h2>
-            <div class="space-y-4">
-                <div class="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
+            {% if not isCommunityVersion %}
+
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Torrent Providers</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter information about
+                    your torrent providers here</p>
+                <br>
+                <div class="relative flex gap-x-3">
                     <div class="flex h-6 items-center">
                         <input id="jackett" name="jackett" value="jackett" type="checkbox"
-                               class="w-5 h-5 rounded border-gray-600 text-indigo-600 focus:ring-indigo-600 bg-gray-700" checked
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600" checked
                                oninput="updateProviderFields(true)">
                     </div>
-                    <div>
-                        <label for="jackett" class="font-medium text-white cursor-pointer">Enable Jackett</label>
-                        <p class="text-sm text-gray-400">Use your own Jackett instance for more results</p>
+                    <div class="text-sm leading-6">
+                        <label for="jackett" class="block text-sm font-medium mb-2 dark:text-white">Enable
+                            Jackett</label>
+                        <p class="text-gray-500 dark:text-gray-300">Enable Jackett for more results</p>
                     </div>
                 </div>
-
-                <div class="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
+                <div class="mt-10 relative flex gap-x-3">
                     <div class="flex h-6 items-center">
                         <input id="cache" name="cache" value="cache" type="checkbox"
-                               class="w-5 h-5 rounded border-gray-600 text-indigo-600 focus:ring-indigo-600 bg-gray-700" checked
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600" checked
                                oninput="updateProviderFields(true)">
                     </div>
-                    <div>
-                        <label for="cache" class="font-medium text-white cursor-pointer">Enable Cache</label>
-                        <p class="text-sm text-gray-400">Use cached results for instant loading</p>
+                    <div class="text-sm leading-6">
+                        <label for="cache" class="block text-sm font-medium mb-2 dark:text-white">Enable cache</label>
+                        <p class="text-gray-500 dark:text-gray-300">Enable caching for faster results</p>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Jackett Config -->
-        <div id="jackett-fields" class="space-y-4 animate-fade-in">
-            <h2 class="text-xl font-semibold text-white section-title">Jackett Configuration</h2>
-            <div class="grid grid-cols-1 gap-6">
-                <div>
-                    <label for="jackett-host" class="block text-sm font-medium text-gray-300 mb-2">Jackett URL</label>
-                    <input type="text" name="jackett-host" id="jackett-host"
-                           class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                           placeholder="http://localhost:9117">
-                </div>
-                <div>
-                    <label for="jackett-api" class="block text-sm font-medium text-gray-300 mb-2">API Key</label>
-                    <input type="text" name="jackett-api" id="jackett-api"
-                           class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                           placeholder="Your Jackett API Key">
-                </div>
-            </div>
-        </div>
-        {% endif %}
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12" id="jackett-fields">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Jackett Information</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter information about your
+                    Jackett server here</p>
 
-        <!-- Debrid Config -->
-        <div id="debrid-fields" class="space-y-4">
-            <h2 class="text-xl font-semibold text-white section-title">Debrid Configuration</h2>
-            <div class="grid grid-cols-1 gap-6">
-                <div>
-                    <label for="service" class="block text-sm font-medium text-gray-300 mb-2">Service Provider</label>
-                    <div class="relative">
-                        <select id="service" name="service"
-                                class="input-field w-full rounded-lg py-3 px-4 text-sm appearance-none">
-                            <option value="realdebrid">Real-Debrid</option>
-                            <option value="alldebrid">All-Debrid</option>
-                            <option value="premiumize">Premiumize</option>
-                            <option value="torbox">TorBox</option>
-                        </select>
-                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                <div class="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
+                    <div class="sm:col-span-3">
+                        <label for="jackett-host" class="block text-sm font-medium mb-2 dark:text-white">Jackett
+                            Host</label>
+                        <div class="mt-2">
+                            <input oninput="" type="text" name="jackett-host" id="jackett-host"
+                                   autocomplete="jackett-host"
+                                   class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                   placeholder="I.e: http(s)://jackett.com without / at end">
+                        </div>
+                    </div>
+
+                    <div class="sm:col-span-3">
+                        <label for="jackett-api" class="block text-sm font-medium mb-2 dark:text-white">Jackett API
+                            key</label>
+                        <div class="mt-2">
+                            <input oninput="" type="text" name="jackett-api" id="jackett-api" autocomplete="jackett-api"
+                                   class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                   placeholder="Your Jackett API key">
                         </div>
                     </div>
                 </div>
-                <div>
-                    <label for="debrid-api" class="block text-sm font-medium text-gray-300 mb-2">Debrid API Key</label>
-                    <input type="text" name="debrid-api" id="debrid-api"
-                           class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                           placeholder="Paste your API key here">
-                </div>
             </div>
-        </div>
 
-        <!-- Metadata Config -->
-        <div>
-            <h2 class="text-xl font-semibold text-white section-title">Metadata Provider</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="relative">
-                    <input class="peer hidden" id="tmdb" name="metadataProvider" value="tmdb" type="radio" checked oninput="updateProviderFields(true)">
-                    <label for="tmdb" class="flex flex-col p-4 rounded-xl border border-gray-700 bg-slate-800/50 cursor-pointer hover:bg-slate-700/50 peer-checked:border-indigo-500 peer-checked:bg-indigo-500/10 transition-all">
-                        <span class="font-semibold text-white">TMDB</span>
-                        <span class="text-xs text-gray-400 mt-1">Rich metadata, multi-language support</span>
-                    </label>
-                </div>
-                <div class="relative">
-                    <input class="peer hidden" id="cinemeta" name="metadataProvider" value="cinemeta" type="radio" oninput="updateProviderFields(true)">
-                    <label for="cinemeta" class="flex flex-col p-4 rounded-xl border border-gray-700 bg-slate-800/50 cursor-pointer hover:bg-slate-700/50 peer-checked:border-indigo-500 peer-checked:bg-indigo-500/10 transition-all">
-                        <span class="font-semibold text-white">Cinemeta</span>
-                        <span class="text-xs text-gray-400 mt-1">Standard Stremio metadata (Fast)</span>
-                    </label>
-                </div>
-            </div>
-        </div>
+            {% endif %}
 
-        <!-- TMDB Config -->
-        <div id="tmdb-fields" class="space-y-4">
-            <h2 class="text-xl font-semibold text-white section-title">TMDB Configuration</h2>
-            <div>
-                <label for="tmdb-api" class="block text-sm font-medium text-gray-300 mb-2">TMDB API Key</label>
-                <input type="text" name="tmdb-api" id="tmdb-api"
-                       class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                       placeholder="Required for TMDB metadata">
-                <p class="mt-2 text-xs text-gray-500">Don't have one? <a href="https://www.themoviedb.org/signup" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">Get it here</a></p>
-            </div>
-        </div>
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12" id="debrid-fields">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Debrid Information</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter your debrid provider
+                    and its API key here</p>
 
-        <!-- Filtering Section -->
-        <div>
-            <h2 class="text-xl font-semibold text-white section-title">Filters & Sorting</h2>
-            
-            <div class="space-y-6">
-                <!-- Sorting -->
-                <div>
-                    <h3 class="text-sm font-medium text-gray-300 mb-3 uppercase tracking-wider">Sorting Strategy</h3>
-                    <div class="space-y-2">
-                        <label class="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                            <input id="quality" name="sorting" value="quality" type="radio" class="w-4 h-4 text-indigo-600 bg-gray-700 border-gray-600 focus:ring-indigo-600" checked>
-                            <span class="text-sm text-gray-200">Quality (Best first)</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                            <input id="seedsdesc" name="sorting" value="seedsdesc" type="radio" class="w-4 h-4 text-indigo-600 bg-gray-700 border-gray-600 focus:ring-indigo-600">
-                            <span class="text-sm text-gray-200">Seeders (Descending)</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                            <input id="sizedesc" name="sorting" value="sizedesc" type="radio" class="w-4 h-4 text-indigo-600 bg-gray-700 border-gray-600 focus:ring-indigo-600">
-                            <span class="text-sm text-gray-200">Size (Descending)</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                            <input id="sizeasc" name="sorting" value="sizeasc" type="radio" class="w-4 h-4 text-indigo-600 bg-gray-700 border-gray-600 focus:ring-indigo-600">
-                            <span class="text-sm text-gray-200">Size (Ascending)</span>
-                        </label>
-                        <label class="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-                            <input id="qualitythensize" name="sorting" value="qualitythensize" type="radio" class="w-4 h-4 text-indigo-600 bg-gray-700 border-gray-600 focus:ring-indigo-600">
-                            <span class="text-sm text-gray-200">Quality then Size</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Languages -->
-                <div>
-                    <h3 class="text-sm font-medium text-gray-300 mb-3 uppercase tracking-wider">Languages</h3>
-                    <div class="flex items-center gap-3 mb-3">
-                        <input id="get-all-languages" name="get-all-languages" type="checkbox"
-                               class="w-4 h-4 rounded border-gray-600 text-indigo-600 bg-gray-700 focus:ring-indigo-600"
-                               oninput="updateProviderFields(true)">
-                        <label for="get-all-languages" class="text-sm text-white">Select All Languages</label>
-                    </div>
-
-                    <div id="languages-fields" class="relative">
-                        <div class="input-field w-full rounded-lg py-3 px-4 text-sm flex justify-between items-center cursor-pointer" onclick="showCheckboxes()">
-                            <span>Select Languages...</span>
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                <div class="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
+                    <div class="sm:col-span-3">
+                        <label for="service" class="block text-sm font-medium mb-2 dark:text-white">Debrid
+                            Provider</label>
+                        <div class="mt-2">
+                            <select onchange="" id="service" name="service" autocomplete="service"
+                                    class="py-3 px-4 pe-9 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600">
+                                <option value="realdebrid">Real-Debrid</option>
+                                <option value="alldebrid">All-Debrid</option>
+                                <option value="premiumize">Premiumize</option>
+                                <option value="torbox">TorBox</option>
+                            </select>
                         </div>
-                        <div id="languageCheckBoxes" class="hidden absolute w-full mt-1 rounded-md shadow-lg z-50">
-                            <div class="p-2 space-y-1">
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="en" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇬🇧 English
+                    </div>
+                    <div class="sm:col-span-3">
+                        <label for="debrid-api" class="block text-sm font-medium mb-2 dark:text-white">Debrid API
+                            key</label>
+                        <div class="mt-2">
+                            <input oninput="" type="text" name="debrid-api" id="debrid-api" autocomplete="debrid-api"
+                                   class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                   placeholder="Your Debrid API key">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Metadata Provider</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter information about
+                    your metadata provider here</p>
+                <br>
+                <div class="relative flex gap-x-3">
+                    <div class="flex h-6 items-center">
+                        <input id="tmdb" name="metadataProvider" value="tmdb" type="radio"
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600" checked
+                               oninput="updateProviderFields(true)">
+                    </div>
+                    <div class="text-sm leading-6">
+                        <label for="tmdb" class="block text-sm font-medium mb-2 dark:text-white">TMDB</label>
+                        <p class="text-gray-500 dark:text-gray-300">Use TMDB for more accurate metadata in different
+                            languages</p>
+                    </div>
+                </div>
+                <div class="mt-10 relative flex gap-x-3">
+                    <div class="flex h-6 items-center">
+                        <input id="cinemeta" name="metadataProvider" value="cinemeta" type="radio"
+                               class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                               oninput="updateProviderFields(true)">
+                    </div>
+                    <div class="text-sm leading-6">
+                        <label for="cinemeta" class="block text-sm font-medium mb-2 dark:text-white">Cinemeta</label>
+                        <p class="text-gray-500 dark:text-gray-300">Use Cinemeta for simple metadata</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12" id="tmdb-fields">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">TMDB Informations</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">You will enter information
+                    about TMDB here. You can
+                    find your API key in "Settings" after registering <a href="https://www.themoviedb.org/signup"
+                                                                         target="_blank">here</a></p>
+
+                <div class="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
+                    <div class="col-span-full">
+                        <label for="tmdb-api" class="block text-sm font-medium mb-2 dark:text-white">TMDB API
+                            key</label>
+                        <div class="mt-2">
+                            <input oninput="" type="text" name="tmdb-api" id="tmdb-api" autocomplete="tmdb-api"
+                                   class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                   placeholder="Your TMDB API key">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-b border-gray-900/10 dark:border-white/50 pb-12">
+                <h2 class="text-base font-semibold leading-7 text-gray-900 dark:text-white">Filtering</h2>
+                <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Set-up here your filtering
+                    parameters. Suiting results
+                    is a must :)</p>
+
+                <div class="mt-10 space-y-10">
+                    <fieldset>
+                        <legend class="text-sm font-semibold leading-6 text-gray-900 dark:text-white">Sorting</legend>
+                        <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Choose the sorting that suits
+                            you the best.</p>
+
+                        <div class="mt-6 space-y-6">
+                            <div class="relative flex gap-x-3">
+                                <div class="flex h-6 items-center">
+                                    <input oninput="" id="quality" name="sorting" value="quality" type="radio"
+                                           class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                                           checked>
+                                </div>
+                                <div class="text-sm leading-6">
+                                    <label for="quality"
+                                           class="block text-sm font-medium mb-2 dark:text-white">Quality</label>
+                                    <p class="text-gray-500 dark:text-gray-300">Get the best quality on top</p>
+                                </div>
+                            </div>
+                            <div class="relative flex gap-x-3">
+                                <div class="flex h-6 items-center">
+                                    <input oninput="" id="seedsdesc" name="sorting" value="seedsdesc" type="radio"
+                                           class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                </div>
+                                <div class="text-sm leading-6">
+                                    <label for="seedsdesc" class="block text-sm font-medium mb-2 dark:text-white">Seeders
+                                        descending</label>
+                                    <p class="text-gray-500 dark:text-gray-300">Filter results by seeders descending</p>
+                                </div>
+                            </div>
+                            <div class="relative flex gap-x-3">
+                                <div class="flex h-6 items-center">
+                                    <input oninput="" id="sizedesc" name="sorting" value="sizedesc" type="radio"
+                                           class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                </div>
+                                <div class="text-sm leading-6">
+                                    <label for="sizedesc" class="block text-sm font-medium mb-2 dark:text-white">Size
+                                        descending</label>
+                                    <p class="text-gray-500 dark:text-gray-300">Filter results by size descending</p>
+                                </div>
+                            </div>
+                            <div class="relative flex gap-x-3">
+                                <div class="flex h-6 items-center">
+                                    <input oninput="" id="sizeasc" name="sorting" value="sizeasc" type="radio"
+                                           class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                </div>
+                                <div class="text-sm leading-6">
+                                    <label for="sizeasc" class="block text-sm font-medium mb-2 dark:text-white">Size
+                                        ascending</label>
+                                    <p class="text-gray-500 dark:text-gray-300">Filter results by size ascending</p>
+                                </div>
+                            </div>
+                            <div class="relative flex gap-x-3">
+                                <div class="flex h-6 items-center">
+                                    <input oninput="" id="qualitythensize" name="sorting" value="qualitythensize"
+                                           type="radio"
+                                           class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                </div>
+                                <div class="text-sm leading-6">
+                                    <label for="qualitythensize" class="block text-sm font-medium mb-2 dark:text-white">Quality
+                                        then
+                                        size</label>
+                                    <p class="text-gray-500 dark:text-gray-300">Filter results by quality then size
+                                        descending</p>
+                                </div>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend class="text-sm font-semibold leading-6 text-gray-900 dark:text-white">Quality
+                            Exclusion
+                        </legend>
+                        <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Check qualities that you want
+                            to exclude</p>
+                        <div class="mt-6 space-y-6">
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="4k" name="4k" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="4k" class="block text-sm font-medium mb-2 dark:text-white">4k</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="1080p" name="1080p" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="1080p"
+                                       class="block text-sm font-medium mb-2 dark:text-white">1080p</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="720p" name="720p" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="720p" class="block text-sm font-medium mb-2 dark:text-white">720p</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="480p" name="480p" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="480p" class="block text-sm font-medium mb-2 dark:text-white">480p</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="rips" name="rips" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="rips" class="block text-sm font-medium mb-2 dark:text-white">RIPs (HDRip,
+                                    WEBRip, etc.)</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="cam" name="cam" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="cam" class="block text-sm font-medium mb-2 dark:text-white">CAMs (CAM,
+                                    TS, etc.)</label>
+                            </div>
+
+                            <div class="flex items-center gap-x-3">
+                                <input oninput="" id="unknown" name="unknown" type="checkbox"
+                                       class="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-600">
+                                <label for="unknown"
+                                       class="block text-sm font-medium mb-2 dark:text-white">Unknown</label>
+                            </div>
+
+                            <div>
+                                <label for="exclusion-keywords"
+                                       class="block text-sm font-medium mb-2 dark:text-white">Exclusion
+                                    Keywords</label>
+                                <div class="mt-2">
+                                    <input oninput="" type="text" name="exclusion-keywords" id="exclusion-keywords"
+                                           autocomplete="exclusion-keywords"
+                                           class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                           placeholder="keyword1, keyword2, keyword3">
+                                </div>
+                            </div>
+
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="mt-6 space-y-6">
+                    <div class="sm:col-span-3">
+                        <label for="language" class="block text-sm font-medium mb-2 dark:text-white">Language</label>
+                        <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Choose your languages</p>
+
+                        <div class="multipleSelection mt-2" id="languages-fields">
+                            <div class="selectBox" onclick="showCheckboxes()">
+                                <select class="py-3 px-4 pe-9 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600">
+                                    <option>Languages</option>
+                                </select>
+                                <div class="overSelect"></div>
+                            </div>
+
+                            <div id="languageCheckBoxes"
+                                 class="text-black dark:text-white bg-opacity-70 bg-white dark:bg-opacity-90 dark:bg-gray-900 border-gray-200">
+                                <label for="en">
+                                    <input type="checkbox" id="en"/>
+                                    🇬🇧 <span class="ml-1">English</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="fr" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇫🇷 French
+
+                                <label for="fr">
+                                    <input type="checkbox" id="fr"/>
+                                    🇫🇷 <span class="ml-1">French</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="es" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇪🇸 Spanish
+                                <label for="es">
+                                    <input type="checkbox" id="es"/>
+                                    🇪🇸 <span class="ml-1">Spanish</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="de" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇩🇪 German
+                                <label for="de">
+                                    <input type="checkbox" id="de"/>
+                                    🇩🇪 <span class="ml-1">German</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="it" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇮🇹 Italian
+                                <label for="it">
+                                    <input type="checkbox" id="it"/>
+                                    🇮🇹 <span class="ml-1">Italian</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="pt" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇵🇹 Portuguese
+                                <label for="pt">
+                                    <input type="checkbox" id="pt"/>
+                                    🇵🇹 <span class="ml-1">Portuguese</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="pt-BR" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇧🇷 Brazilian Portuguese
+                                <label for="pt-BR">
+                                    <input type="checkbox" id="pt-BR"/>
+                                    🇧🇷 <span class="ml-1">Brazilian Portuguese</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="ru" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇷🇺 Russian
+                                <label for="ru">
+                                    <input type="checkbox" id="ru"/>
+                                    🇷🇺 <span class="ml-1">Russian</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="in" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇮🇳 Hindi
+                                <label for="in">
+                                    <input type="checkbox" id="in"/>
+                                    🇮🇳 <span class="ml-1">Hindi</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="nl" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇳🇱 Dutch
+                                <label for="nl">
+                                    <input type="checkbox" id="nl"/>
+                                    🇳🇱 <span class="ml-1">Dutch</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="hu" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇭🇺 Hungarian
+                                <label for="hu">
+                                    <input type="checkbox" id="hu"/>
+                                    🇭🇺 <span class="ml-1">Hungarian</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="la" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🇲🇽 Latin
+                                <label for="la">
+                                    <input type="checkbox" id="la"/>
+                                    🇲🇽 <span class="ml-1">Latin</span>
                                 </label>
-                                <label class="flex items-center gap-2 hover:bg-white/10 p-2 rounded cursor-pointer">
-                                    <input type="checkbox" id="multi" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> 🌍 MULTi
+                                <label for="multi">
+                                    <input type="checkbox" id="multi"/>
+                                    🌍 <span class="ml-1">MULTi</span>
                                 </label>
                             </div>
                         </div>
                     </div>
-                </div>
+                    <div class="mt-10 relative flex gap-x-3">
+                        <div class="flex h-6 items-center">
+                            <input id="get-all-languages" name="get-all-languages" value="" type="checkbox"
+                                   class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                                   oninput="updateProviderFields(true)">
+                        </div>
+                        <div class="text-sm leading-6">
+                            <label for="get-all-languages" class="block text-sm font-medium mb-2 dark:text-white">Get
+                                all languages</label>
+                        </div>
+                    </div>
+                    <div class="mt-6 space-y-6">
+                        <div class="sm:col-span-3">
+                            <label for="maxSize" class="block text-sm font-medium mb-2 dark:text-white">Maximum
+                                size</label>
+                            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Set a maximum size for
+                                your results in
+                                GB.</p>
 
-                <!-- Limits & Exclusions -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                        <label for="maxSize" class="block text-sm font-medium text-gray-300 mb-2">Max Size (GB)</label>
-                        <input type="number" name="maxSize" id="maxSize" class="input-field w-full rounded-lg py-3 px-4 text-sm" placeholder="e.g. 5">
-                    </div>
-                    <div>
-                        <label for="resultsPerQuality" class="block text-sm font-medium text-gray-300 mb-2">Results Per Quality</label>
-                        <input type="number" name="resultsPerQuality" id="resultsPerQuality" class="input-field w-full rounded-lg py-3 px-4 text-sm" placeholder="e.g. 5">
-                    </div>
-                    <div>
-                        <label for="maxResults" class="block text-sm font-medium text-gray-300 mb-2">Max Results Total</label>
-                        <input type="number" name="maxResults" id="maxResults" class="input-field w-full rounded-lg py-3 px-4 text-sm" placeholder="e.g. 10">
-                    </div>
-                </div>
+                            <div class="mt-2">
+                                <input oninput="" type="text" name="maxSize" id="maxSize" autocomplete="maxSize"
+                                       class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                       placeholder="5">
+                            </div>
+                        </div>
 
-                <div>
-                    <h3 class="text-sm font-medium text-gray-300 mb-3 uppercase tracking-wider">Quality Exclusions</h3>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="4k" name="4k" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>4K</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="1080p" name="1080p" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>1080p</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="720p" name="720p" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>720p</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="480p" name="480p" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>480p</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="rips" name="rips" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>RIPs</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="cam" name="cam" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>CAM</span>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer">
-                            <input type="checkbox" id="unknown" name="unknown" class="rounded bg-gray-700 border-gray-600 text-indigo-500"> <span>Unknown</span>
-                        </label>
                     </div>
-                </div>
-                
-                 <div>
-                    <label for="exclusion-keywords" class="block text-sm font-medium text-gray-300 mb-2">Exclusion Keywords</label>
-                    <input type="text" name="exclusion-keywords" id="exclusion-keywords"
-                           class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                           placeholder="dubbed, hardcoded, etc.">
+
+                    <div class="mt-6 space-y-6">
+                        <div class="sm:col-span-3">
+                            <label for="maxSize" class="block text-sm font-medium mb-2 dark:text-white">Results per
+                                quality</label>
+                            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Set the amount of maximum
+                                results you want
+                                per
+                                quality.</p>
+
+                            <div class="mt-2">
+                                <input oninput="" type="text" name="resultsPerQuality" id="resultsPerQuality"
+                                       autocomplete="resultsPerQuality"
+                                       class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                       placeholder="5">
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="mt-6 space-y-6">
+                        <div class="sm:col-span-3">
+                            <label for="maxResults" class="block text-sm font-medium mb-2 dark:text-white">Maximum
+                                results</label>
+                            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400">Set the amount of maximum
+                                results you
+                                want.</p>
+
+                            <div class="mt-2">
+                                <input oninput="" type="text" name="maxResults" id="maxResults"
+                                       autocomplete="maxResults"
+                                       class="py-3 px-4 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-slate-900 dark:border-gray-700 dark:text-gray-400 dark:focus:ring-gray-600"
+                                       placeholder="5">
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="flex gap-4 pt-8">
-            <button id="install" onclick="getLink('link')"
-               class="btn-primary w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg hover:shadow-indigo-500/30 text-center cursor-pointer">
-                Install Addon
-            </button>
-            <button id="copy" onclick="getLink('copy')"
-               class="w-full py-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-lg shadow-lg hover:shadow-slate-500/30 text-center cursor-pointer transition-all">
-                Copy Link
-            </button>
+            <div class="mt-6 flex items-center justify-center gap-x-6">
+                <a id="install" onclick="return getLink('link')"
+                   class="cursor-pointer rounded-md bg-black px-3 py-2 text-sm font-semibold text-white dark:text-black dark:bg-white shadow-sm hover:bg--500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Install</a>
+                <a id="copy" onclick="return getLink('copy')"
+                   class="cursor-pointer rounded-md bg-black px-3 py-2 text-sm font-semibold text-white dark:text-black dark:bg-white shadow-sm hover:bg--500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Copy</a>
+            </div>
         </div>
-
     </form>
 </div>
-
 </body>
 <script src="/static/config.js"></script>
 </html>
