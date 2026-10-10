@@ -60,11 +60,11 @@ ci_success() {
   result="$(python3 - "$sha" "$REPO_SLUG" <<'PY'
 import json,sys,urllib.request,urllib.parse
 sha,slug=sys.argv[1:]
-url=f'https://api.github.com/repos/{slug}/actions/workflows/build-and-push.yml/runs?'+urllib.parse.urlencode({'head_sha':sha,'event':'push','per_page':'30'})
+url=f'https://api.github.com/repos/{slug}/actions/workflows/build-and-push.yml/runs?'+urllib.parse.urlencode({'head_sha':sha,'per_page':'30'})
 request=urllib.request.Request(url,headers={'User-Agent':'jackett-vps-deployer','Accept':'application/vnd.github+json'})
 with urllib.request.urlopen(request,timeout=20) as response:
     data=json.load(response)
-runs=[r for r in data.get('workflow_runs',[]) if r.get('head_sha')==sha and r.get('event')=='push']
+runs=[r for r in data.get('workflow_runs',[]) if r.get('head_sha')==sha and r.get('event') in ('push','workflow_dispatch') and r.get('head_branch')=='main']
 print('success' if any(r.get('status')=='completed' and r.get('conclusion')=='success' for r in runs) else 'pending_or_failed')
 PY
 )" || { log "Could not verify GitHub Actions status; deployment skipped"; return 1; }
