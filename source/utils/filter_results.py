@@ -1313,9 +1313,6 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
         f"[PERF][DL-CANDIDATES] after_raw="
         f"{_count_unresolved_dl(items)} / items={len(items)}"
     )
-    if prefetch_callback is not None:
-        prefetch_callback(items)
-
     items = _materialize_parsed_data(
         items,
         rtn_prewarm=rtn_prewarm,
@@ -1384,6 +1381,9 @@ def filter_items(items, media, config, prefetch_callback=None, rtn_prewarm=None)
         'Final item count after all filtering: %s',
         len(items),
     )
+
+    if prefetch_callback is not None:
+        prefetch_callback(items)
 
     return items
 
