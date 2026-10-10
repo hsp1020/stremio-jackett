@@ -617,6 +617,14 @@ from main import get_results, get_playback, _get_results_sync
 assert inspect.iscoroutinefunction(get_results)
 assert not inspect.iscoroutinefunction(_get_results_sync)
 assert not inspect.iscoroutinefunction(get_playback)
+# The async gate must still deliver the original sync stream handler response.
+import asyncio
+with patch("main._get_results_sync", return_value={"streams": [{"name": "ok"}]}) as search:
+    wrapped_result = asyncio.run(
+        get_results("encoded", "movie", "tt12345", SimpleNamespace(client=SimpleNamespace(host="127.0.0.1")))
+    )
+    assert wrapped_result == {"streams": [{"name": "ok"}]}
+    search.assert_called_once()
 with patch("main.parse_config", return_value={"service": "realdebrid"}), \
      patch("main.decodeb64", return_value='{}'), \
      patch("main.get_debrid_service", return_value=SimpleNamespace(
