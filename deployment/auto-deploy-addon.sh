@@ -123,8 +123,12 @@ https_ok() {
 }
 write_override() {
   local image="$1"
-  local temp="${OVERRIDE_FILE}.tmp.$$"
+  local temp="${OVERRIDE_FILE}.tmp.$"
   printf 'services:\n  addon:\n    image: "%s"\n' "$image" > "$temp"
+  if [[ -n "${AIOMETADATA_BASE_URL:-}" ]]; then
+    python3 -c 'import json,sys; print("    environment:\n      AIOMETADATA_BASE_URL: " + json.dumps(sys.argv[1]))' "$AIOMETADATA_BASE_URL" >> "$temp"
+  fi
+  chmod 600 "$temp"
   mv "$temp" "$OVERRIDE_FILE"
 }
 deploy() {
@@ -164,8 +168,12 @@ deploy() {
     return 0
   fi
   log "ERROR: New addon failed; rolling back original Compose image"
-  # Pin the exact image that was running before the attempted deployment.
-  write_override "$previous_image"
+  # Restore the previous overlay and environment along with the image.
+  if [[ "$had_override" == true ]]; then
+    cp -p "$backupdir/override.yml" "$OVERRIDE_FILE"
+  else
+    AIOMETADATA_BASE_URL="" write_override "$previous_image"
+  fi
   if compose up -d --no-deps --no-build --force-recreate addon && container_ok addon; then
     log "Rollback container restored"
   else
@@ -188,6 +196,12 @@ case "$MODE" in
     ;;
 esac
 assert_current_stack
+# Preserve the runtime setting on manual deployments without an Actions variable.
+if [[ -z "${AIOMETADATA_BASE_URL:-}" ]]; then
+  current_metadata="$(docker inspect "$SERVICE" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^AIOMETADATA_BASE_URL=' || true)"
+  AIOMETADATA_BASE_URL="${current_metadata#AIOMETADATA_BASE_URL=}"
+  export AIOMETADATA_BASE_URL
+fi
 head_sha="$(latest_commit)"
 if [[ "$MODE" == --deploy-sha ]]; then
   if [[ "$sha" != "$head_sha" ]]; then
@@ -203,7 +217,10 @@ else
   fi
 fi
 if [[ -f "$LAST_FILE" && "$(cat "$LAST_FILE")" == "$sha" ]]; then
-  log "Already deployed $sha"
-  exit 0
+  if [[ -z "${AIOMETADATA_BASE_URL:-}" ]] || docker inspect "$SERVICE" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -Fxq -- "AIOMETADATA_BASE_URL=$AIOMETADATA_BASE_URL"; then
+    log "Already deployed $sha"
+    exit 0
+  fi
+  log "Runtime AIOMetadata URL changed; redeploying $sha"
 fi
 deploy "$sha"

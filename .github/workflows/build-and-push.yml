@@ -144,6 +144,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.JACKETT_SSH_PRIVATE_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.JACKETT_SSH_KNOWN_HOSTS }}
           DEPLOY_PORT: ${{ secrets.JACKETT_SSH_PORT }}
+          AIOMETADATA_BASE_URL: ${{ secrets.AIOMETADATA_BASE_URL || vars.AIOMETADATA_BASE_URL }}
         run: |
           set -Eeuo pipefail
           for variable in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY DEPLOY_KNOWN_HOSTS; do
@@ -152,6 +153,15 @@ jobs:
               exit 1
             fi
           done
+          if [[ -z "${AIOMETADATA_BASE_URL:-}" ]]; then
+            echo "::error::Set AIOMETADATA_BASE_URL in Actions secrets or variables"
+            exit 1
+          fi
+          if [[ "$AIOMETADATA_BASE_URL" != https://* ]]; then
+            echo "::error::AIOMETADATA_BASE_URL must be an HTTPS base URL"
+            exit 1
+          fi
+          metadata_url_b64="$(printf '%s' "$AIOMETADATA_BASE_URL" | base64 -w 0)"
           port="${DEPLOY_PORT:-22}"
           [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]] || { echo "::error::Invalid JACKETT_SSH_PORT"; exit 1; }
           umask 077
@@ -189,9 +199,10 @@ jobs:
           echo "Transferring already-verified ARM64 image (no VPS compilation)"
           docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" -- "$remote" "gzip -dc | sudo -n docker load"
 
-          ssh "${ssh_args[@]}" -- "$remote" "sudo -n bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          ssh "${ssh_args[@]}" -- "$remote" "sudo -n bash -s -- '$GITHUB_SHA' '$metadata_url_b64'" <<'REMOTE'
           set -Eeuo pipefail
           sha="$1"
+          export AIOMETADATA_BASE_URL="$(printf '%s' "$2" | base64 --decode)"
           repo_dir="/home/ubuntu/stremio-jackett-deploy"
           git -c safe.directory="$repo_dir" -C "$repo_dir" fetch --depth 1 origin main
           fetched="$(git -c safe.directory="$repo_dir" -C "$repo_dir" rev-parse FETCH_HEAD)"
