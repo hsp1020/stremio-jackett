@@ -5,6 +5,7 @@ from models.media import Media
 from models.movie import Movie
 from models.series import Series
 from utils.logger import setup_logger
+import os
 import re
 import time
 
@@ -51,6 +52,12 @@ class TMDB(MetadataProvider):
                 return None
 
             result = self.__get_tmdb_metadata(id, full_id, media_type)
+            if result is None and re.fullmatch(r"tt\d+", full_id[0]):
+                tmdb_id = self.__get_aiometadata_tmdb_id(full_id[0], media_type)
+                if tmdb_id:
+                    result = self.__get_tmdb_metadata(
+                        id, ["tmdb", tmdb_id, *full_id[1:]], media_type
+                    )
 
             self.logger.info(
                 f"[PERF][TMDB] get_metadata TOTAL: "
@@ -61,6 +68,34 @@ class TMDB(MetadataProvider):
 
         except Exception as e:
             self.logger.error(f"[TMDB] 메타데이터 조회 중 치명적 오류: {str(e)}", exc_info=True)
+            return None
+
+    def __get_aiometadata_tmdb_id(self, imdb_id, media_type):
+        base_url = os.getenv("AIOMETADATA_BASE_URL", "").strip().rstrip("/")
+        if not base_url:
+            self.logger.warning("[TMDB] AIOMETADATA_BASE_URL is not configured")
+            return None
+
+        try:
+            response = requests.get(
+                f"{base_url}/meta/{media_type}/{imdb_id}.json",
+                timeout=(1.5, 2.5),
+            )
+            response.raise_for_status()
+            meta = response.json().get("meta")
+            if not isinstance(meta, dict) or meta.get("type") != media_type:
+                return None
+            if (meta.get("imdb_id") or meta.get("_imdbId") or meta.get("id")) != imdb_id:
+                return None
+            tmdb_id = str(meta.get("_tmdbId") or "")
+            if not tmdb_id.isdigit() or int(tmdb_id) <= 0:
+                return None
+            self.logger.info("[ID변환] AIOMetadata IMDb(%s) -> TMDB(%s)", imdb_id, tmdb_id)
+            return tmdb_id
+        except (requests.RequestException, ValueError, TypeError, AttributeError) as exc:
+            self.logger.warning(
+                "[TMDB] AIOMetadata mapping failed for %s: %s", imdb_id, exc
+            )
             return None
 
     def __convert_tvdb_to_tmdb(self, full_id, media_type):
